@@ -148,6 +148,7 @@ function tgl(n){layers[n]=layers[n]?0:1;const el=document.querySelector(`.lt[dat
   if(n==='labels')['labelDS','borderDS'].forEach(k=>{if(prims[k])prims[k].show=sh;});
   if(n==='aircraft'&&trailLineColl)trailLineColl.show=sh;
   if(n==='ships'&&shipTrailLineColl)shipTrailLineColl.show=sh;
+  if(viewer)viewer.scene.requestRender();
 }
 
 // ── Military detection ──
@@ -280,11 +281,26 @@ function startFeeds(){fetchAC();fetchSats();fetchShips();fetchCCTV();startAnim()
 
 // ── Aircraft: All regions every 8s (no batching — airplanes.live has no rate limit) ──
 const AC_REGS=[
-  {lat:50,lon:10},{lat:55,lon:-3},{lat:40,lon:-74},{lat:34,lon:-118},{lat:41,lon:-95},
-  {lat:25,lon:-80},{lat:35,lon:139},{lat:22,lon:114},{lat:25,lon:55},{lat:-34,lon:151},
-  {lat:-23,lon:-43},{lat:55,lon:37},{lat:60,lon:25},{lat:28,lon:77},{lat:41,lon:29},
-  // Additional global coverage
-  {lat:13,lon:100},{lat:1,lon:104},{lat:5,lon:3},{lat:19,lon:-99},{lat:-34,lon:-58}
+  // Europe
+  {lat:50,lon:10},{lat:55,lon:-3},{lat:47,lon:2},{lat:52,lon:21},{lat:41,lon:29},
+  {lat:60,lon:25},{lat:55,lon:37},{lat:48,lon:16},
+  // North America
+  {lat:40,lon:-74},{lat:34,lon:-118},{lat:41,lon:-95},{lat:25,lon:-80},
+  {lat:33,lon:-112},{lat:45,lon:-93},{lat:37,lon:-122},{lat:47,lon:-122},
+  // South America
+  {lat:-23,lon:-43},{lat:-34,lon:-58},{lat:-12,lon:-77},{lat:4,lon:-74},
+  // Middle East & Africa
+  {lat:25,lon:55},{lat:24,lon:46},{lat:30,lon:31},{lat:33,lon:44},
+  {lat:-1,lon:37},{lat:-26,lon:28},{lat:5,lon:3},{lat:14,lon:17},
+  {lat:9,lon:38},{lat:-4,lon:15},
+  // Asia-Pacific
+  {lat:35,lon:139},{lat:22,lon:114},{lat:37,lon:127},{lat:28,lon:77},
+  {lat:13,lon:100},{lat:1,lon:104},{lat:-6,lon:107},{lat:10,lon:106},
+  {lat:14,lon:121},{lat:-34,lon:151},{lat:-38,lon:145},{lat:-27,lon:153},
+  // Central & South Asia
+  {lat:33,lon:73},{lat:41,lon:69},{lat:39,lon:116},
+  // Mexico / Caribbean
+  {lat:19,lon:-99},{lat:18,lon:-66}
 ];
 
 async function fetchAC(){
@@ -344,7 +360,7 @@ function renderAC(){
   for(const h in acBBTrack)if(!(h in seen)||seen[h]===1)acBBTrack[h].show=false;
   for(const h in milBBTrack)if(!(h in seen)||seen[h]===0)milBBTrack[h].show=false;
   document.getElementById('c-ac').textContent=civN;document.getElementById('c-mil').textContent=milN;document.getElementById('b-ac').textContent=civN+milN;
-  viewer.scene.requestRender();
+  updateTrails();
 }
 
 function updateTrails(){
@@ -352,7 +368,7 @@ function updateTrails(){
   trailPool.forEach(p=>p.show=false);
   let tc=0;
   for(const a of Object.values(acCache)){
-    if(!a._trail||a._trail.length<3||tc>=100)continue;
+    if(!a._trail||a._trail.length<2||tc>=100)continue;
     trailPool[tc].positions=a._trail.map(p=>Cesium.Cartesian3.fromDegrees(p[0],p[1],p[2]));
     trailPool[tc].show=true;tc++;
   }
@@ -388,7 +404,7 @@ async function fetchOpenSky(){
         added++;
       }
     });
-    // No renderAC() here — next fetchAC cycle (≤10s) will pick up new entries
+    if(added>0)renderAC();
     log('OPENSKY',`+${added} new (total cache: ${Object.keys(acCache).length})`);
   }catch(e){log('OPENSKY','Error: '+e.message);}
 }
@@ -575,7 +591,7 @@ async function fetchCCTV(){
   try{log('CCTV','TfL...');const r=await fetch('https://api.tfl.gov.uk/Place/Type/JamCam');if(!r.ok)throw new Error('');(await r.json()).forEach(c=>{const im=(c.additionalProperties||[]).find(p=>p.key==='imageUrl');const vid=(c.additionalProperties||[]).find(p=>p.key==='videoUrl');if(c.lat&&c.lon)cams.push({id:c.id,name:c.commonName||c.id,lat:c.lat,lon:c.lon,img:im?im.value:null,video:vid?vid.value:null,src:'TfL'});});setSS('tfl','ok');log('CCTV','TfL: '+cams.length);}catch(e){setSS('tfl','err');}
   try{log('CCTV','Autobahn...');const lr=await fetch('https://verkehr.autobahn.de/o/autobahn/');if(!lr.ok)throw new Error('');
     for(const rd of((await lr.json()).roads||[])){try{const wr=await fetch(`https://verkehr.autobahn.de/o/autobahn/${rd}/services/webcam`);if(!wr.ok)continue;((await wr.json()).webcam||[]).forEach(wc=>{const co=wc.coordinate;if(co?.lat&&co?.long)cams.push({id:wc.identifier||'ab-'+Math.random().toString(36).substr(2,5),name:wc.title||rd,lat:+co.lat,lon:+co.long,img:wc.imageurl||null,src:'AB '+rd});});}catch(e){}}setSS('ab','ok');}catch(e){setSS('ab','err');}
-  try{log('CCTV','Digitraffic FI...');const dr=await fetch('https://tie.digitraffic.fi/api/v3/data/camera-data');if(!dr.ok)throw new Error('HTTP '+dr.status);const dd=await dr.json();let dtN=0;(dd.cameraStations||[]).forEach(cs=>{(cs.cameraPresets||[]).forEach(cp=>{if(cp.imageUrl&&cs.coordinates?.y&&cs.coordinates?.x){cams.push({id:'dtfi-'+cp.id,name:cs.name||cp.id,lat:cs.coordinates.y,lon:cs.coordinates.x,img:cp.imageUrl,src:'Digitraffic FI'});dtN++;}});});setSS('dtfi','ok');log('CCTV','Digitraffic FI: '+dtN);}catch(e){setSS('dtfi','err');log('CCTV','Digitraffic FI: '+e.message);}
+  try{log('CCTV','Digitraffic FI...');const dr=await fetch('https://tie.digitraffic.fi/api/v3/metadata/camera-stations');if(!dr.ok)throw new Error('HTTP '+dr.status);const dd=await dr.json();let dtN=0;(dd.cameraStations||[]).forEach(cs=>{const lat=cs.wgs84Lat||cs.coordinates?.y,lon=cs.wgs84Long||cs.coordinates?.x;if(!lat||!lon)return;(cs.cameraPresets||[]).forEach(cp=>{if(cp.imageUrl){cams.push({id:'dtfi-'+cp.id,name:(cs.names?.en||cs.names?.fi||cp.id),lat:+lat,lon:+lon,img:cp.imageUrl,src:'Digitraffic FI'});dtN++;}});});setSS('dtfi','ok');log('CCTV','Digitraffic FI: '+dtN);}catch(e){setSS('dtfi','err');log('CCTV','Digitraffic FI: '+e.message);}
   try{log('CCTV','DriveBC...');const br=await fetch('https://www.drivebc.ca/api/v1/webcam/?format=json&limit=500');if(!br.ok)throw new Error('HTTP '+br.status);const bd=await br.json();let dbN=0;(bd.results||bd).forEach(wc=>{if(wc.location?.coordinates&&wc.images?.[0]?.url){cams.push({id:'dbc-'+wc.id,name:wc.name||('BC-'+wc.id),lat:wc.location.coordinates[1],lon:wc.location.coordinates[0],img:wc.images[0].url,src:'DriveBC CA'});dbN++;}});setSS('drivebc','ok');log('CCTV','DriveBC: '+dbN);}catch(e){setSS('drivebc','err');log('CCTV','DriveBC: '+e.message);}
   prims.camPts.removeAll();
   cams.forEach(c=>{const pt=prims.camPts.add({position:Cesium.Cartesian3.fromDegrees(c.lon,c.lat,100),pixelSize:5,color:Cesium.Color.fromCssColorString('#ff3344')});pt._wv={t:'cam',id:c.id};});
@@ -583,11 +599,34 @@ async function fetchCCTV(){
 }
 
 // ═══ ANIMATION ═══
-let lastSatProp=0;
+let lastSatProp=0,_lastInterp=0;
+// Dead-reckoning: interpolate aircraft positions between API updates using heading + ground speed
+function interpAC(){
+  const now=Date.now();
+  for(const a of Object.values(acCache)){
+    if(!a.lat||!a.lon||!a.gs||a.gs<10||!a.track)continue;
+    const bb=acBBTrack[a.hex]||milBBTrack[a.hex];
+    if(!bb||!bb.show)continue;
+    const dt=(now-a._ts)/1000;
+    if(dt>25||dt<0.5)continue;
+    const spd=(a.gs*1.852)/3600; // km/s
+    const dist=spd*dt;
+    const b=a.track*D2R;
+    const lat1=a.lat*D2R,lon1=a.lon*D2R;
+    const ad=dist/ER;
+    const lat2=Math.asin(Math.sin(lat1)*Math.cos(ad)+Math.cos(lat1)*Math.sin(ad)*Math.cos(b));
+    const lon2=lon1+Math.atan2(Math.sin(b)*Math.sin(ad)*Math.cos(lat1),Math.cos(ad)-Math.sin(lat1)*Math.sin(lat2));
+    if(isNaN(lat2)||isNaN(lon2))continue;
+    const altM=(a.alt_baro==='ground'?0:(a.alt_baro||0)*0.3048)||100;
+    bb.position=Cesium.Cartesian3.fromDegrees(lon2*R2D,lat2*R2D,altM);
+  }
+  viewer.scene.requestRender();
+}
 function startAnim(){
   (function frame(ts){
     document.getElementById('h-utc').textContent=new Date().toISOString().substr(11,8);
-    if(ts-lastSatProp>5000){propSats();lastSatProp=ts;}  // propSats calls requestRender
+    if(ts-lastSatProp>5000){propSats();lastSatProp=ts;}
+    if(ts-_lastInterp>2000){interpAC();_lastInterp=ts;}
     requestAnimationFrame(frame);
   })(0);
 }
