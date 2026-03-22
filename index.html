@@ -81,6 +81,9 @@ body.mode-nvg::after{content:'';position:fixed;inset:0;z-index:9;background:repe
       <div class="sr" id="s-ais"><span class="sd ld"></span>Digitraffic AIS<span class="sts" id="t-ais">—</span></div>
       <div class="sr" id="s-tfl"><span class="sd ld"></span>TfL JamCams<span class="sts" id="t-tfl">—</span></div>
       <div class="sr" id="s-ab"><span class="sd ld"></span>Autobahn GmbH<span class="sts" id="t-ab">—</span></div>
+      <div class="sr" id="s-dtfi"><span class="sd ld"></span>Digitraffic FI<span class="sts" id="t-dtfi">—</span></div>
+      <div class="sr" id="s-drivebc"><span class="sd ld"></span>DriveBC CA<span class="sts" id="t-drivebc">—</span></div>
+      <div class="sr" id="s-bw"><span class="sd ld"></span>BarentsWatch AIS<span class="sts" id="t-bw">—</span></div>
     </div>
     <div class="ss" style="margin-top:6px"><div class="sr" style="font-size:8px;color:var(--gd)">Zones: Stand Mär 2025 / ICAO/NOTAM</div></div>
   </div>
@@ -129,8 +132,9 @@ const cams=[];
 const acCache={};  // hex -> {data, billboard}
 // Billboard tracking maps: hex/mmsi → billboard reference (avoid removeAll+re-add)
 const acBBTrack={},milBBTrack={},shipBBTrack={};
-const trailPool=[];  // Pre-allocated PolylineCollection pool
-let trailLineColl,satPtCol,_lastPick=0;
+const trailPool=[];  // Pre-allocated PolylineCollection pool (aircraft)
+const shipTrailPool=[];  // Pre-allocated PolylineCollection pool (ships)
+let trailLineColl,shipTrailLineColl,satPtCol,_lastPick=0;
 let satTrackIdx=null,satTrackInt=null,orbitPathDS=null,showOrbit=false;
 
 function tgl(n){layers[n]=layers[n]?0:1;const el=document.querySelector(`.lt[data-ly="${n}"]`);if(el)el.classList.toggle('off',!layers[n]);if(n==='zones')document.getElementById('zl').classList.toggle('vis',!!layers.zones);
@@ -143,6 +147,7 @@ function tgl(n){layers[n]=layers[n]?0:1;const el=document.querySelector(`.lt[dat
   if(n==='zones')['nfz','fir','gps_mod','gps_hi','gps_ext'].forEach(k=>{if(prims[k])prims[k].show=sh;});
   if(n==='labels')['labelDS','borderDS'].forEach(k=>{if(prims[k])prims[k].show=sh;});
   if(n==='aircraft'&&trailLineColl)trailLineColl.show=sh;
+  if(n==='ships'&&shipTrailLineColl)shipTrailLineColl.show=sh;
 }
 
 // ── Military detection ──
@@ -203,7 +208,11 @@ function initGlobe(){
   // Trails — pre-allocated PolylineCollection pool (primitive, NOT entity — avoids entity system overhead)
   trailLineColl=viewer.scene.primitives.add(new Cesium.PolylineCollection());
   const _tc=new Cesium.Color(0,1,0.533,0.35);
-  for(let i=0;i<60;i++)trailPool.push(trailLineColl.add({positions:[Cesium.Cartesian3.ZERO,Cesium.Cartesian3.fromDegrees(0,1,100)],width:1.5,material:Cesium.Material.fromType('Color',{color:_tc}),show:false}));
+  for(let i=0;i<100;i++)trailPool.push(trailLineColl.add({positions:[Cesium.Cartesian3.ZERO,Cesium.Cartesian3.fromDegrees(0,1,100)],width:1.5,material:Cesium.Material.fromType('Color',{color:_tc}),show:false}));
+  // Ship trail pool — cyan, 40 slots
+  shipTrailLineColl=viewer.scene.primitives.add(new Cesium.PolylineCollection());
+  const _sc=new Cesium.Color(0,0.867,1,0.25);
+  for(let i=0;i<40;i++)shipTrailPool.push(shipTrailLineColl.add({positions:[Cesium.Cartesian3.ZERO,Cesium.Cartesian3.fromDegrees(0,1,50)],width:1.2,material:Cesium.Material.fromType('Color',{color:_sc}),show:false}));
 
   // Zones
   const loadGJ=(name,gj,opts)=>{const ds=new Cesium.GeoJsonDataSource(name);ds.load(gj,opts).then(()=>viewer.dataSources.add(ds));prims[name]=ds;};
@@ -223,6 +232,13 @@ function initGlobe(){
 
   // Borders
   try{const bds=new Cesium.GeoJsonDataSource('borders');bds.load('https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_boundary_lines_land.geojson',{stroke:Cesium.Color.fromCssColorString('#00ff88').withAlpha(.35),strokeWidth:1.2,fill:Cesium.Color.TRANSPARENT}).then(()=>viewer.dataSources.add(bds));prims.borderDS=bds;}catch(e){}
+
+  // ESRI Reference overlays — transparent PNG tiles, no API key required
+  // Fade in progressively as user zooms toward street level
+  const esriLabels=viewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({url:'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',maximumLevel:20}));
+  const esriRoads=viewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({url:'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',maximumLevel:20}));
+  esriLabels.alpha=0;esriRoads.alpha=0;
+  setInterval(()=>{const h=viewer.camera.positionCartographic.height;esriLabels.alpha=h<8e6?Math.min(0.9,(8e6-h)/5e6):0;esriRoads.alpha=h<2e6?Math.min(1,(2e6-h)/1.5e6):0;},500);
 
   viewer.camera.flyTo({destination:Cesium.Cartesian3.fromDegrees(10,35,20000000),duration:0});
 
@@ -256,19 +272,24 @@ function initGlobe(){
 
 // ═══ DATA FEEDS ═══
 function startFeeds(){fetchAC();fetchSats();fetchShips();fetchCCTV();startAnim();
-  setInterval(fetchAC,10000);setInterval(fetchShips,60000);setInterval(fetchCCTV,180000);setInterval(fetchSats,3600000);
-  setInterval(()=>{updateTrails();viewer.scene.requestRender();},15000);
+  setInterval(fetchAC,8000);setInterval(fetchShips,60000);setInterval(fetchCCTV,180000);setInterval(fetchSats,3600000);
+  setInterval(()=>{updateTrails();updateShipTrails();viewer.scene.requestRender();},15000);
   setTimeout(fetchOpenSky,5000);setInterval(fetchOpenSky,30000);
-  log('SYS','Feeds: AC 10s + OpenSky 30s');}
+  setInterval(fetchBarentsWatch,90000);setTimeout(fetchBarentsWatch,8000);
+  log('SYS','Feeds: AC 8s (alle Regionen) + OpenSky 30s');}
 
-// ── Aircraft: Staggered batch with cache ──
-const AC_REGS=[{lat:50,lon:10},{lat:55,lon:-3},{lat:40,lon:-74},{lat:34,lon:-118},{lat:41,lon:-95},{lat:25,lon:-80},{lat:35,lon:139},{lat:22,lon:114},{lat:25,lon:55},{lat:-34,lon:151},{lat:-23,lon:-43},{lat:55,lon:37},{lat:60,lon:25},{lat:28,lon:77},{lat:41,lon:29}];
-let acBatch=0;
+// ── Aircraft: All regions every 8s (no batching — airplanes.live has no rate limit) ──
+const AC_REGS=[
+  {lat:50,lon:10},{lat:55,lon:-3},{lat:40,lon:-74},{lat:34,lon:-118},{lat:41,lon:-95},
+  {lat:25,lon:-80},{lat:35,lon:139},{lat:22,lon:114},{lat:25,lon:55},{lat:-34,lon:151},
+  {lat:-23,lon:-43},{lat:55,lon:37},{lat:60,lon:25},{lat:28,lon:77},{lat:41,lon:29},
+  // Additional global coverage
+  {lat:13,lon:100},{lat:1,lon:104},{lat:5,lon:3},{lat:19,lon:-99},{lat:-34,lon:-58}
+];
 
 async function fetchAC(){
   try{
-    const bSz=5,start=(acBatch%Math.ceil(AC_REGS.length/bSz))*bSz;
-    const regs=AC_REGS.slice(start,start+bSz);acBatch++;
+    const regs=AC_REGS;
     const [rr,mr]=await Promise.all([
       Promise.all(regs.map(async r=>{try{const resp=await fetch(`https://api.airplanes.live/v2/point/${r.lat}/${r.lon}/250`);return resp.ok?(await resp.json()).ac||[]:[];}catch(e){return[];}})),
       (async()=>{try{const r=await fetch('https://api.airplanes.live/v2/mil_a/NONE');return r.ok?(await r.json()).ac||[]:[];}catch(e){return[];}})()
@@ -281,7 +302,7 @@ async function fetchAC(){
     if(ck.length>10000){ck.sort((a,b)=>acCache[a]._ts-acCache[b]._ts).slice(0,ck.length-10000).forEach(k=>delete acCache[k]);}
     renderAC();setSS('ac','ok');
     const vals=Object.values(acCache);
-    log('ADSB',`${vals.length} aircraft (batch ${acBatch})`);
+    log('ADSB',`${vals.length} aircraft`);
   }catch(e){log('ADSB','Error: '+e.message);setSS('ac','err');}
 }
 
@@ -316,7 +337,7 @@ function renderAC(){
       bb._wv=wv;track[a.hex]=bb;
     }
     // Trail append
-    if(!a._trail)a._trail=[];a._trail.push([a.lon,a.lat,altM||100]);if(a._trail.length>20)a._trail.shift();
+    if(!a._trail)a._trail=[];a._trail.push([a.lon,a.lat,altM||100]);if(a._trail.length>30)a._trail.shift();
     if(mil)milN++;else civN++;
   });
   // Hide billboards for aircraft gone from cache or that switched civ↔mil status
@@ -331,9 +352,20 @@ function updateTrails(){
   trailPool.forEach(p=>p.show=false);
   let tc=0;
   for(const a of Object.values(acCache)){
-    if(!a._trail||a._trail.length<3||tc>=60)continue;
+    if(!a._trail||a._trail.length<3||tc>=100)continue;
     trailPool[tc].positions=a._trail.map(p=>Cesium.Cartesian3.fromDegrees(p[0],p[1],p[2]));
     trailPool[tc].show=true;tc++;
+  }
+  viewer.scene.requestRender();
+}
+
+function updateShipTrails(){
+  shipTrailPool.forEach(p=>p.show=false);
+  let tc=0;
+  for(const bb of Object.values(shipBBTrack)){
+    if(!bb._trail||bb._trail.length<2||tc>=40)continue;
+    shipTrailPool[tc].positions=bb._trail.map(p=>Cesium.Cartesian3.fromDegrees(p[0],p[1],p[2]));
+    shipTrailPool[tc].show=true;tc++;
   }
   viewer.scene.requestRender();
 }
@@ -370,6 +402,8 @@ function openSP(idx){
   if(satTrackInt)clearInterval(satTrackInt);
   updateSP();
   satTrackInt=setInterval(updateSP,5000);
+  // Auto-show orbit path on click
+  if(!showOrbit)toggleOrbitPath();
 }
 function closeSP(){
   document.getElementById('sp').classList.remove('vis');
@@ -505,11 +539,34 @@ async function fetchShips(){
       seenShips.add(key);
       if(shipBBTrack[key]){shipBBTrack[key].position=pos;shipBBTrack[key].rotation=rot;shipBBTrack[key].show=true;shipBBTrack[key]._wv=wv;}
       else{const bb=prims.shipBB.add({position:pos,image:shipIcn,width:9,height:9,rotation:rot,alignedAxis:Cesium.Cartesian3.ZERO,scaleByDistance:new Cesium.NearFarScalar(1e4,1.2,5e6,.2)});bb._wv=wv;shipBBTrack[key]=bb;}
+      // Append trail point
+      const bb=shipBBTrack[key];if(!bb._trail)bb._trail=[];bb._trail.push([lon,lat,50]);if(bb._trail.length>8)bb._trail.shift();
       n++;
     });
     for(const k in shipBBTrack)if(!seenShips.has(k))shipBBTrack[k].show=false;
     document.getElementById('c-shp').textContent=n;document.getElementById('b-shp').textContent=n;setSS('ais','ok');log('AIS',n+' vessels');viewer.scene.requestRender();
   }catch(e){setSS('ais','err');log('AIS',e.message);}
+}
+
+// ── BarentsWatch AIS (Norwegian waters + Arctic) ──
+async function fetchBarentsWatch(){
+  try{log('AIS','BarentsWatch...');const r=await fetch('https://live.ais.barentswatch.no/v1/latest/combined');if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();if(!Array.isArray(d)||!d.length)throw new Error('Empty');
+    if(Object.keys(shipBBTrack).length>4500){prims.shipBB.removeAll();for(const k in shipBBTrack)delete shipBBTrack[k];}
+    const seenBW=new Set();let n=0;
+    d.forEach(v=>{const lon=v.longitude,lat=v.latitude;if(lon==null||lat==null)return;
+      const key='bw-'+(v.mmsi||lon+','+lat);
+      const hdg=v.courseOverGround||v.trueHeading||0;
+      const pos=Cesium.Cartesian3.fromDegrees(lon,lat,50);
+      const rot=Cesium.Math.toRadians(-hdg);
+      const wv={t:'shp',mmsi:v.mmsi||'—',nm:v.name||'',sog:v.speedOverGround!=null?v.speedOverGround.toFixed(1)+' kn':'—',cog:v.courseOverGround!=null?v.courseOverGround.toFixed(1)+'°':'—',lat,lon};
+      seenBW.add(key);
+      if(shipBBTrack[key]){shipBBTrack[key].position=pos;shipBBTrack[key].rotation=rot;shipBBTrack[key].show=true;shipBBTrack[key]._wv=wv;}
+      else{const bb=prims.shipBB.add({position:pos,image:shipIcn,width:9,height:9,rotation:rot,alignedAxis:Cesium.Cartesian3.ZERO,scaleByDistance:new Cesium.NearFarScalar(1e4,1.2,5e6,.2)});bb._wv=wv;shipBBTrack[key]=bb;}
+      const bb=shipBBTrack[key];if(!bb._trail)bb._trail=[];bb._trail.push([lon,lat,50]);if(bb._trail.length>8)bb._trail.shift();
+      n++;
+    });
+    setSS('bw','ok');log('AIS','BarentsWatch: '+n+' vessels');viewer.scene.requestRender();
+  }catch(e){setSS('bw','err');log('AIS','BarentsWatch: '+e.message);}
 }
 
 // ── CCTV ──
@@ -518,6 +575,8 @@ async function fetchCCTV(){
   try{log('CCTV','TfL...');const r=await fetch('https://api.tfl.gov.uk/Place/Type/JamCam');if(!r.ok)throw new Error('');(await r.json()).forEach(c=>{const im=(c.additionalProperties||[]).find(p=>p.key==='imageUrl');const vid=(c.additionalProperties||[]).find(p=>p.key==='videoUrl');if(c.lat&&c.lon)cams.push({id:c.id,name:c.commonName||c.id,lat:c.lat,lon:c.lon,img:im?im.value:null,video:vid?vid.value:null,src:'TfL'});});setSS('tfl','ok');log('CCTV','TfL: '+cams.length);}catch(e){setSS('tfl','err');}
   try{log('CCTV','Autobahn...');const lr=await fetch('https://verkehr.autobahn.de/o/autobahn/');if(!lr.ok)throw new Error('');
     for(const rd of((await lr.json()).roads||[])){try{const wr=await fetch(`https://verkehr.autobahn.de/o/autobahn/${rd}/services/webcam`);if(!wr.ok)continue;((await wr.json()).webcam||[]).forEach(wc=>{const co=wc.coordinate;if(co?.lat&&co?.long)cams.push({id:wc.identifier||'ab-'+Math.random().toString(36).substr(2,5),name:wc.title||rd,lat:+co.lat,lon:+co.long,img:wc.imageurl||null,src:'AB '+rd});});}catch(e){}}setSS('ab','ok');}catch(e){setSS('ab','err');}
+  try{log('CCTV','Digitraffic FI...');const dr=await fetch('https://tie.digitraffic.fi/api/v3/data/camera-data');if(!dr.ok)throw new Error('HTTP '+dr.status);const dd=await dr.json();let dtN=0;(dd.cameraStations||[]).forEach(cs=>{(cs.cameraPresets||[]).forEach(cp=>{if(cp.imageUrl&&cs.coordinates?.y&&cs.coordinates?.x){cams.push({id:'dtfi-'+cp.id,name:cs.name||cp.id,lat:cs.coordinates.y,lon:cs.coordinates.x,img:cp.imageUrl,src:'Digitraffic FI'});dtN++;}});});setSS('dtfi','ok');log('CCTV','Digitraffic FI: '+dtN);}catch(e){setSS('dtfi','err');log('CCTV','Digitraffic FI: '+e.message);}
+  try{log('CCTV','DriveBC...');const br=await fetch('https://www.drivebc.ca/api/v1/webcam/?format=json&limit=500');if(!br.ok)throw new Error('HTTP '+br.status);const bd=await br.json();let dbN=0;(bd.results||bd).forEach(wc=>{if(wc.location?.coordinates&&wc.images?.[0]?.url){cams.push({id:'dbc-'+wc.id,name:wc.name||('BC-'+wc.id),lat:wc.location.coordinates[1],lon:wc.location.coordinates[0],img:wc.images[0].url,src:'DriveBC CA'});dbN++;}});setSS('drivebc','ok');log('CCTV','DriveBC: '+dbN);}catch(e){setSS('drivebc','err');log('CCTV','DriveBC: '+e.message);}
   prims.camPts.removeAll();
   cams.forEach(c=>{const pt=prims.camPts.add({position:Cesium.Cartesian3.fromDegrees(c.lon,c.lat,100),pixelSize:5,color:Cesium.Color.fromCssColorString('#ff3344')});pt._wv={t:'cam',id:c.id};});
   document.getElementById('c-cam').textContent=cams.length;document.getElementById('b-cam').textContent=cams.length;log('CCTV',cams.length+' cams');
