@@ -127,7 +127,10 @@ const prims={};  // named primitive references
 const satRecs=[];
 const cams=[];
 const acCache={};  // hex -> {data, billboard}
-let acTrailDS, satPtCol, _lastPick=0;
+// Billboard tracking maps: hex/mmsi → billboard reference (avoid removeAll+re-add)
+const acBBTrack={},milBBTrack={},shipBBTrack={};
+const trailPool=[];  // Pre-allocated PolylineCollection pool
+let trailLineColl,satPtCol,_lastPick=0;
 let satTrackIdx=null,satTrackInt=null,orbitPathDS=null,showOrbit=false;
 
 function tgl(n){layers[n]=layers[n]?0:1;const el=document.querySelector(`.lt[data-ly="${n}"]`);if(el)el.classList.toggle('off',!layers[n]);if(n==='zones')document.getElementById('zl').classList.toggle('vis',!!layers.zones);
@@ -139,7 +142,7 @@ function tgl(n){layers[n]=layers[n]?0:1;const el=document.querySelector(`.lt[dat
   if(n==='satellites'&&orbitPathDS)orbitPathDS.show=sh;
   if(n==='zones')['nfz','fir','gps_mod','gps_hi','gps_ext'].forEach(k=>{if(prims[k])prims[k].show=sh;});
   if(n==='labels')['labelDS','borderDS'].forEach(k=>{if(prims[k])prims[k].show=sh;});
-  if(n==='aircraft'&&acTrailDS)acTrailDS.show=sh;
+  if(n==='aircraft'&&trailLineColl)trailLineColl.show=sh;
 }
 
 // ── Military detection ──
@@ -197,7 +200,10 @@ function initGlobe(){
   // Satellites — PointPrimitiveCollection (lightweight, no image needed)
   satPtCol=viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
   // Trails
-  acTrailDS=new Cesium.CustomDataSource('acTrails');viewer.dataSources.add(acTrailDS);
+  // Trails — pre-allocated PolylineCollection pool (primitive, NOT entity — avoids entity system overhead)
+  trailLineColl=viewer.scene.primitives.add(new Cesium.PolylineCollection());
+  const _tc=new Cesium.Color(0,1,0.533,0.35);
+  for(let i=0;i<60;i++)trailPool.push(trailLineColl.add({positions:[Cesium.Cartesian3.ZERO,Cesium.Cartesian3.fromDegrees(0,1,100)],width:1.5,material:Cesium.Material.fromType('Color',{color:_tc}),show:false}));
 
   // Zones
   const loadGJ=(name,gj,opts)=>{const ds=new Cesium.GeoJsonDataSource(name);ds.load(gj,opts).then(()=>viewer.dataSources.add(ds));prims[name]=ds;};
@@ -270,6 +276,9 @@ async function fetchAC(){
     const now=Date.now();
     rr.flat().concat(mr).forEach(a=>{if(a.hex&&a.lat!=null&&a.lon!=null){const ex=acCache[a.hex];acCache[a.hex]={...a,_ts:now,_trail:ex?._trail||[]};}});
     for(const k in acCache)if(now-acCache[k]._ts>90000)delete acCache[k];
+    // Cap cache to prevent unbounded growth (OpenSky can add thousands of extra entries)
+    const ck=Object.keys(acCache);
+    if(ck.length>10000){ck.sort((a,b)=>acCache[a]._ts-acCache[b]._ts).slice(0,ck.length-10000).forEach(k=>delete acCache[k]);}
     renderAC();setSS('ac','ok');
     const vals=Object.values(acCache);
     log('ADSB',`${vals.length} aircraft (batch ${acBatch})`);
@@ -278,43 +287,55 @@ async function fetchAC(){
 
 function renderAC(){
   const acBB=prims.acBB,milBB=prims.milBB;
-  // Remove all and re-add — but only for billboards (lightweight with cached images)
-  acBB.removeAll();milBB.removeAll();
-  let civN=0,milN=0;
+  // GC: reset billboard collections if tracked count grows too large (e.g. after many aircraft appear/disappear over hours)
+  if(Object.keys(acBBTrack).length+Object.keys(milBBTrack).length>14000){
+    acBB.removeAll();milBB.removeAll();
+    for(const k in acBBTrack)delete acBBTrack[k];
+    for(const k in milBBTrack)delete milBBTrack[k];
+  }
+  const seen={};let civN=0,milN=0;
   Object.values(acCache).forEach(a=>{
-    const cs=(a.flight||'').trim();
-    const mil=isMil(cs);
+    if(!a.hex||a.lat==null||a.lon==null)return;
+    const cs=(a.flight||'').trim(),mil=isMil(cs);
     const altFt=a.alt_baro==='ground'?0:(a.alt_baro||0);
     const altM=altFt===0?0:Math.round(altFt*0.3048);
     const altDisp=a.alt_baro==='ground'?'GND':altM?altM+' m (FL'+Math.round(altFt/100)+')':'—';
-    const spdKt=a.gs||0;
-    const spdKmh=spdKt?(spdKt*1.852).toFixed(0)+' km/h':'—';
+    const spdKmh=a.gs?(a.gs*1.852).toFixed(0)+' km/h':'—';
     const trk=a.track!=null?a.track.toFixed(1)+'°':'—';
-    const acType=a.t||a.desc||'—';
-    const oper=a.ownOp||a.r||'—';
-    const bb=(mil?milBB:acBB).add({
-      position:Cesium.Cartesian3.fromDegrees(a.lon,a.lat,altM||100),
-      image:mil?acIconR:acIconG, width:mil?18:14, height:mil?18:14,
-      rotation:a.track!=null?Cesium.Math.toRadians(-a.track):0,
-      alignedAxis:Cesium.Cartesian3.ZERO,
-      scaleByDistance:new Cesium.NearFarScalar(1e4,1.2,5e6,.25)
-    });
-    bb._wv={t:mil?'mil':'ac',hex:a.hex||'',cs,r:oper,alt:altDisp,spd:spdKmh,trk,type:acType,lat:a.lat,lon:a.lon};
+    const pos=Cesium.Cartesian3.fromDegrees(a.lon,a.lat,altM||100);
+    const rot=a.track!=null?Cesium.Math.toRadians(-a.track):0;
+    const wv={t:mil?'mil':'ac',hex:a.hex,cs,r:a.ownOp||a.r||'—',alt:altDisp,spd:spdKmh,trk,type:a.t||a.desc||'—',lat:a.lat,lon:a.lon};
+    seen[a.hex]=mil?1:0;
+    const track=mil?milBBTrack:acBBTrack;
+    if(track[a.hex]){
+      // Hot path: just update position/rotation — no GPU reallocation
+      track[a.hex].position=pos;track[a.hex].rotation=rot;track[a.hex].show=true;track[a.hex]._wv=wv;
+    }else{
+      // Cold path: new aircraft, create billboard once
+      const bb=(mil?milBB:acBB).add({position:pos,image:mil?acIconR:acIconG,width:mil?18:14,height:mil?18:14,rotation:rot,alignedAxis:Cesium.Cartesian3.ZERO,scaleByDistance:new Cesium.NearFarScalar(1e4,1.2,5e6,.25)});
+      bb._wv=wv;track[a.hex]=bb;
+    }
+    // Trail append
+    if(!a._trail)a._trail=[];a._trail.push([a.lon,a.lat,altM||100]);if(a._trail.length>20)a._trail.shift();
     if(mil)milN++;else civN++;
-    if(a.hex){if(!a._trail)a._trail=[];a._trail.push([a.lon,a.lat,altM||100]);if(a._trail.length>20)a._trail.shift();}
   });
+  // Hide billboards for aircraft gone from cache or that switched civ↔mil status
+  for(const h in acBBTrack)if(!(h in seen)||seen[h]===1)acBBTrack[h].show=false;
+  for(const h in milBBTrack)if(!(h in seen)||seen[h]===0)milBBTrack[h].show=false;
   document.getElementById('c-ac').textContent=civN;document.getElementById('c-mil').textContent=milN;document.getElementById('b-ac').textContent=civN+milN;
   viewer.scene.requestRender();
 }
 
 function updateTrails(){
-  acTrailDS.entities.removeAll();
+  // Pool: hide all, then reassign positions — zero allocations for existing slots
+  trailPool.forEach(p=>p.show=false);
   let tc=0;
   for(const a of Object.values(acCache)){
-    if(!a._trail||a._trail.length<3||tc>150)continue;
-    acTrailDS.entities.add({polyline:{positions:a._trail.map(p=>Cesium.Cartesian3.fromDegrees(p[0],p[1],p[2])),width:1.5,material:Cesium.Color.fromCssColorString('#00ff88').withAlpha(.35)}});
-    tc++;
+    if(!a._trail||a._trail.length<3||tc>=60)continue;
+    trailPool[tc].positions=a._trail.map(p=>Cesium.Cartesian3.fromDegrees(p[0],p[1],p[2]));
+    trailPool[tc].show=true;tc++;
   }
+  viewer.scene.requestRender();
 }
 
 // ── OpenSky: Global supplementary source (all aircraft, 30s interval) ──
@@ -331,11 +352,11 @@ async function fetchOpenSky(){
       if(lon==null||lat==null)return;
       const hex=icao24;
       if(!acCache[hex]){  // Only add if not already from airplanes.live
-        acCache[hex]={hex,flight:cs||'',r:country||'',lat,lon,alt_baro:on_ground?'ground':baro_alt,gs:velocity!=null?velocity/0.514444:null,track:heading,t:'',_ts:now};
+        acCache[hex]={hex,flight:cs||'',r:country||'',lat,lon,alt_baro:on_ground?'ground':baro_alt,gs:velocity!=null?velocity/0.514444:null,track:heading,t:'',_ts:now,_trail:[]};
         added++;
       }
     });
-    renderAC();
+    // No renderAC() here — next fetchAC cycle (≤10s) will pick up new entries
     log('OPENSKY',`+${added} new (total cache: ${Object.keys(acCache).length})`);
   }catch(e){log('OPENSKY','Error: '+e.message);}
 }
@@ -472,13 +493,22 @@ async function fetchShips(){
     // Filter valid + sort by speed (moving vessels first), cap at 3000
     const valid=d.features.filter(f=>f.geometry?.coordinates&&f.geometry.coordinates[0]!==0)
       .sort((a,b)=>(b.properties?.sog||0)-(a.properties?.sog||0)).slice(0,3000);
-    prims.shipBB.removeAll();let n=0;
+    // GC: reset if tracked count too large (vessels appear/disappear between 60s refreshes)
+    if(Object.keys(shipBBTrack).length>4500){prims.shipBB.removeAll();for(const k in shipBBTrack)delete shipBBTrack[k];}
+    const seenShips=new Set();let n=0;
     valid.forEach(f=>{const p=f.properties||{};const lon=f.geometry.coordinates[0],lat=f.geometry.coordinates[1];
+      const key=String(p.mmsi||lon+','+lat);
       const hdg=p.heading!=null&&p.heading<360?p.heading:(p.cog!=null?p.cog/10:0);
-      const bb=prims.shipBB.add({position:Cesium.Cartesian3.fromDegrees(lon,lat,50),image:shipIcn,width:9,height:9,rotation:Cesium.Math.toRadians(-hdg),alignedAxis:Cesium.Cartesian3.ZERO,scaleByDistance:new Cesium.NearFarScalar(1e4,1.2,5e6,.2)});
-      bb._wv={t:'shp',mmsi:p.mmsi||'—',nm:p.name||'',sog:p.sog!=null?(p.sog/10).toFixed(1)+' kn':'—',cog:p.cog!=null?(p.cog/10).toFixed(1)+'°':'—',lat,lon};n++;
+      const pos=Cesium.Cartesian3.fromDegrees(lon,lat,50);
+      const rot=Cesium.Math.toRadians(-hdg);
+      const wv={t:'shp',mmsi:p.mmsi||'—',nm:p.name||'',sog:p.sog!=null?(p.sog/10).toFixed(1)+' kn':'—',cog:p.cog!=null?(p.cog/10).toFixed(1)+'°':'—',lat,lon};
+      seenShips.add(key);
+      if(shipBBTrack[key]){shipBBTrack[key].position=pos;shipBBTrack[key].rotation=rot;shipBBTrack[key].show=true;shipBBTrack[key]._wv=wv;}
+      else{const bb=prims.shipBB.add({position:pos,image:shipIcn,width:9,height:9,rotation:rot,alignedAxis:Cesium.Cartesian3.ZERO,scaleByDistance:new Cesium.NearFarScalar(1e4,1.2,5e6,.2)});bb._wv=wv;shipBBTrack[key]=bb;}
+      n++;
     });
-    document.getElementById('c-shp').textContent=n;document.getElementById('b-shp').textContent=n;setSS('ais','ok');log('AIS',n+' vessels (Baltic/Nordic, top 3000 by speed)');viewer.scene.requestRender();
+    for(const k in shipBBTrack)if(!seenShips.has(k))shipBBTrack[k].show=false;
+    document.getElementById('c-shp').textContent=n;document.getElementById('b-shp').textContent=n;setSS('ais','ok');log('AIS',n+' vessels');viewer.scene.requestRender();
   }catch(e){setSS('ais','err');log('AIS',e.message);}
 }
 
