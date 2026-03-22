@@ -52,6 +52,7 @@ body.mode-flir #globe{filter:brightness(.7) saturate(0) invert(1) hue-rotate(180
 #tt{position:absolute;background:rgba(0,0,0,.94);border:1px solid var(--g);padding:4px 10px;font-size:10px;border-radius:1px;pointer-events:none;z-index:50;display:none;white-space:nowrap;box-shadow:0 0 10px rgba(0,255,136,.15)}
 #zl{position:absolute;bottom:42px;right:8px;background:var(--bg);border:1px solid var(--brd);border-radius:2px;padding:7px 10px;font-size:8px;display:none}#zl.vis{display:block}#zl h4{font-size:8px;letter-spacing:2px;color:var(--gd);margin-bottom:5px}.li{display:flex;align-items:center;gap:5px;padding:1px 0}.lsw{width:11px;height:11px;border-radius:1px;border:1px solid rgba(255,255,255,.15)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}@keyframes nfIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}@keyframes nfOut{from{opacity:1}to{opacity:0;transform:translateY(-10px)}}
+#sp{position:absolute;top:54px;right:8px;width:310px;background:var(--bg);border:1px solid var(--brd);border-radius:2px;padding:12px;display:none;max-height:calc(100vh - 110px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--gd) transparent}#sp.vis{display:block}.sp-btn{width:100%;background:0 0;border:1px solid var(--brd);color:var(--gd);font-family:var(--f);font-size:9px;padding:4px 8px;cursor:pointer;letter-spacing:1px;margin-top:6px;text-align:left}.sp-btn:hover{background:var(--g);color:#000}.sp-btn.active{background:var(--c);border-color:var(--c);color:#000}
 body.mode-nvg::after{content:'';position:fixed;inset:0;z-index:9;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,255,0,.03) 2px,rgba(0,255,0,.03) 4px);pointer-events:none}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:0 0}::-webkit-scrollbar-thumb{background:var(--gd);border-radius:2px}
 </style>
@@ -84,8 +85,9 @@ body.mode-nvg::after{content:'';position:fixed;inset:0;z-index:9;background:repe
     <div class="ss" style="margin-top:6px"><div class="sr" style="font-size:8px;color:var(--gd)">Zones: Stand Mär 2025 / ICAO/NOTAM</div></div>
   </div>
   <div id="rp"><div class="rph"><span class="rpt" id="rp-t">DETAILS</span><button class="rpc" onclick="closeD()">✕</button></div><div id="rp-c"></div></div>
+  <div id="sp"><div class="rph"><span class="rpt" id="sp-t">SATELLITE TRACK</span><button class="rpc" onclick="closeSP()">✕</button></div><div id="sp-c"></div><button class="sp-btn" id="sp-orb-btn" onclick="toggleOrbitPath()">⬡ SHOW ORBIT PATH</button></div>
   <div id="cp"><div class="cph"><span class="cpt" id="cp-t">CCTV</span><button class="cpx" onclick="closeC()">✕</button></div><div class="cpb" id="cp-b"></div><div class="cpm" id="cp-m"></div></div>
-  <div id="zl"><h4>ZONE CLASSIFICATION</h4><div class="li"><div class="lsw" style="background:rgba(255,0,0,.4)"></div>No-Fly Zone</div><div class="li"><div class="lsw" style="background:rgba(255,170,0,.35)"></div>FIR/TMA Restriction</div><div class="li"><div class="lsw" style="background:rgba(255,0,255,.3)"></div>GPS Jamming Zone</div></div>
+  <div id="zl"><h4>ZONE CLASSIFICATION</h4><div class="li"><div class="lsw" style="background:rgba(255,0,0,.4)"></div>No-Fly Zone</div><div class="li"><div class="lsw" style="background:rgba(255,170,0,.35)"></div>FIR/TMA Restriction</div><div class="li"><div class="lsw" style="background:rgba(255,204,0,.4)"></div>GPS Jam: MODERATE</div><div class="li"><div class="lsw" style="background:rgba(255,102,0,.45)"></div>GPS Jam: HIGH</div><div class="li"><div class="lsw" style="background:rgba(255,32,32,.5)"></div>GPS Jam: EXTREME</div></div>
   <div id="notifs"></div><div id="tt"></div>
   <div id="bb">
     <div class="pc"><div class="pd"></div><span>WORLDVIEW ACTIVE</span></div>
@@ -126,6 +128,7 @@ const satRecs=[];
 const cams=[];
 const acCache={};  // hex -> {data, billboard}
 let acTrailDS, satPtCol, _lastPick=0;
+let satTrackIdx=null,satTrackInt=null,orbitPathDS=null,showOrbit=false;
 
 function tgl(n){layers[n]=layers[n]?0:1;const el=document.querySelector(`.lt[data-ly="${n}"]`);if(el)el.classList.toggle('off',!layers[n]);if(n==='zones')document.getElementById('zl').classList.toggle('vis',!!layers.zones);
   const sh=!!layers[n];
@@ -133,7 +136,8 @@ function tgl(n){layers[n]=layers[n]?0:1;const el=document.querySelector(`.lt[dat
   if(n==='aircraft'&&prims.acBB)prims.acBB.show=sh;
   if(n==='military'&&prims.milBB)prims.milBB.show=sh;
   if(n==='satellites'&&satPtCol)satPtCol.show=sh;
-  if(n==='zones')['nfz','fir','gps'].forEach(k=>{if(prims[k])prims[k].show=sh;});
+  if(n==='satellites'&&orbitPathDS)orbitPathDS.show=sh;
+  if(n==='zones')['nfz','fir','gps_mod','gps_hi','gps_ext'].forEach(k=>{if(prims[k])prims[k].show=sh;});
   if(n==='labels')['labelDS','borderDS'].forEach(k=>{if(prims[k])prims[k].show=sh;});
   if(n==='aircraft'&&acTrailDS)acTrailDS.show=sh;
 }
@@ -149,11 +153,14 @@ const acIconR=makeIcon((x,s)=>{x.translate(s/2,s/2);x.beginPath();x.moveTo(0,-s/
 const shipIcn=makeIcon((x,s)=>{x.translate(s/2,s/2);x.beginPath();x.moveTo(0,-s/2+2);x.lineTo(s/4,0);x.lineTo(s/5,s/3);x.lineTo(-s/5,s/3);x.lineTo(-s/4,0);x.closePath();x.fillStyle='#00ddff';x.fill();},18);
 
 // ── Zone GeoJSON ──
-const NFZ={type:'FeatureCollection',features:[{type:'Feature',properties:{n:'Ukraine'},geometry:{type:'Polygon',coordinates:[[[22.15,44.39],[22.15,52.38],[25.77,51.94],[30.42,52.34],[33.39,52.28],[36.4,50.31],[40.16,49.6],[40.21,47.02],[38.19,46.1],[33.63,45.33],[31,44.58],[26.6,45.44],[22.15,44.39]]]}},{type:'Feature',properties:{n:'Belarus'},geometry:{type:'Polygon',coordinates:[[[23.18,51.39],[24.36,53.89],[25.77,54.85],[28.15,56.17],[30.97,55.6],[32.74,53.34],[30.42,51.26],[24.36,51.8],[23.18,51.39]]]}},{type:'Feature',properties:{n:'North Korea'},geometry:{type:'Polygon',coordinates:[[[124.27,37.77],[125.07,39.13],[127.1,39.56],[128.31,38.61],[129.35,37.66],[129.06,36.16],[126.64,36.96],[124.27,37.77]]]}},{type:'Feature',properties:{n:'Iran'},geometry:{type:'Polygon',coordinates:[[[44.11,39.36],[48.57,31.04],[52.79,26.36],[59.2,25.51],[63.33,29.96],[60.48,34.14],[57.31,36.99],[52.65,36.8],[49.56,37.51],[46.49,38.87],[44.11,39.36]]]}},{type:'Feature',properties:{n:'Iraq'},geometry:{type:'Polygon',coordinates:[[[38.79,36.69],[42.35,37.06],[46.14,35.63],[48.58,33.5],[47.58,31],[42.07,31.11],[38.79,33.38],[40.69,34.77],[38.79,36.69]]]}},{type:'Feature',properties:{n:'Libya'},geometry:{type:'Polygon',coordinates:[[[9.52,33.14],[15.18,32.39],[19.13,30.27],[24.97,29.24],[24.97,21.99],[15,23],[9.85,26.6],[9.52,33.14]]]}},{type:'Feature',properties:{n:'Syria'},geometry:{type:'Polygon',coordinates:[[[35.73,32.71],[35.84,35.85],[37.07,36.65],[42.35,37.06],[41.24,34.75],[39.2,32.15],[35.73,32.71]]]}},{type:'Feature',properties:{n:'Yemen'},geometry:{type:'Polygon',coordinates:[[[42.65,13.3],[43.32,12.39],[48.42,14],[52,15.6],[53.09,16.65],[47.44,14.38],[44.41,15.36],[42.65,13.3]]]}},{type:'Feature',properties:{n:'Somalia'},geometry:{type:'Polygon',coordinates:[[[40.98,11.94],[44.95,8],[50.81,1],[49.22,-.35],[42.05,2],[40.99,9.12],[40.98,11.94]]]}},{type:'Feature',properties:{n:'Afghanistan'},geometry:{type:'Polygon',coordinates:[[[61.21,35.65],[67.78,37.19],[70.42,38.07],[71.84,36.68],[73.26,34.66],[69.5,33.06],[66.25,29.86],[62.48,29.41],[60.48,34.14],[61.21,35.65]]]}},{type:'Feature',properties:{n:'Sudan'},geometry:{type:'Polygon',coordinates:[[[23.84,19.58],[25,22],[36.87,22],[38.99,16.84],[34.07,11.55],[30.83,9.71],[24.53,10.5],[23.61,13.78],[23.84,19.58]]]}},{type:'Feature',properties:{n:'Venezuela'},geometry:{type:'Polygon',coordinates:[[[-73.35,11.23],[-68.37,11.16],[-63.21,10.37],[-60.97,6.73],[-69.25,6.08],[-72.79,9.09],[-73.35,11.23]]]}}]};
-const FIRGJ={type:'FeatureCollection',features:[{type:'Feature',properties:{n:'Tehran FIR'},geometry:{type:'Polygon',coordinates:[[[44,25],[44,40],[64,40],[64,25],[44,25]]]}},{type:'Feature',properties:{n:'Baghdad FIR'},geometry:{type:'Polygon',coordinates:[[[38,29],[38,37.5],[49,37.5],[49,29],[38,29]]]}},{type:'Feature',properties:{n:'Dnipro FIR'},geometry:{type:'Polygon',coordinates:[[[28,44.5],[28,52.5],[40.5,52.5],[40.5,44.5],[28,44.5]]]}},{type:'Feature',properties:{n:'Sanaa FIR'},geometry:{type:'Polygon',coordinates:[[[42,12],[42,17],[54,17],[54,12],[42,12]]]}},{type:'Feature',properties:{n:'Kabul FIR'},geometry:{type:'Polygon',coordinates:[[[60.5,29],[60.5,39],[75,39],[75,29],[60.5,29]]]}}]};
-const GP=[[35.5,34.5,350],[20.5,54.7,300],[33,43.5,250],[37,36.5,200],[52,26.5,300],[37,46,200],[28.5,61.5,150],[33,69,200],[42.5,14.5,250],[37.6,48.5,300]];
+const NFZ={type:'FeatureCollection',features:[{type:'Feature',properties:{n:'Ukraine'},geometry:{type:'Polygon',coordinates:[[[22.15,44.39],[22.15,52.38],[25.77,51.94],[30.42,52.34],[33.39,52.28],[36.4,50.31],[40.16,49.6],[40.21,47.02],[38.19,46.1],[33.63,45.33],[31,44.58],[26.6,45.44],[22.15,44.39]]]}},{type:'Feature',properties:{n:'Belarus'},geometry:{type:'Polygon',coordinates:[[[23.18,51.39],[24.36,53.89],[25.77,54.85],[28.15,56.17],[30.97,55.6],[32.74,53.34],[30.42,51.26],[24.36,51.8],[23.18,51.39]]]}},{type:'Feature',properties:{n:'North Korea'},geometry:{type:'Polygon',coordinates:[[[124.27,37.77],[125.07,39.13],[127.1,39.56],[128.31,38.61],[129.35,37.66],[129.06,36.16],[126.64,36.96],[124.27,37.77]]]}},{type:'Feature',properties:{n:'Iran'},geometry:{type:'Polygon',coordinates:[[[44.11,39.36],[48.57,31.04],[52.79,26.36],[59.2,25.51],[63.33,29.96],[60.48,34.14],[57.31,36.99],[52.65,36.8],[49.56,37.51],[46.49,38.87],[44.11,39.36]]]}},{type:'Feature',properties:{n:'Iraq'},geometry:{type:'Polygon',coordinates:[[[38.79,36.69],[42.35,37.06],[46.14,35.63],[48.58,33.5],[47.58,31],[42.07,31.11],[38.79,33.38],[40.69,34.77],[38.79,36.69]]]}},{type:'Feature',properties:{n:'Libya'},geometry:{type:'Polygon',coordinates:[[[9.52,33.14],[15.18,32.39],[19.13,30.27],[24.97,29.24],[24.97,21.99],[15,23],[9.85,26.6],[9.52,33.14]]]}},{type:'Feature',properties:{n:'Syria'},geometry:{type:'Polygon',coordinates:[[[35.73,32.71],[35.84,35.85],[37.07,36.65],[42.35,37.06],[41.24,34.75],[39.2,32.15],[35.73,32.71]]]}},{type:'Feature',properties:{n:'Yemen'},geometry:{type:'Polygon',coordinates:[[[42.65,13.3],[43.32,12.39],[48.42,14],[52,15.6],[53.09,16.65],[47.44,14.38],[44.41,15.36],[42.65,13.3]]]}},{type:'Feature',properties:{n:'Somalia'},geometry:{type:'Polygon',coordinates:[[[40.98,11.94],[44.95,8],[50.81,1],[49.22,-.35],[42.05,2],[40.99,9.12],[40.98,11.94]]]}},{type:'Feature',properties:{n:'Afghanistan'},geometry:{type:'Polygon',coordinates:[[[61.21,35.65],[67.78,37.19],[70.42,38.07],[71.84,36.68],[73.26,34.66],[69.5,33.06],[66.25,29.86],[62.48,29.41],[60.48,34.14],[61.21,35.65]]]}},{type:'Feature',properties:{n:'Sudan'},geometry:{type:'Polygon',coordinates:[[[23.84,19.58],[25,22],[36.87,22],[38.99,16.84],[34.07,11.55],[30.83,9.71],[24.53,10.5],[23.61,13.78],[23.84,19.58]]]}},{type:'Feature',properties:{n:'Venezuela'},geometry:{type:'Polygon',coordinates:[[[-73.35,11.23],[-68.37,11.16],[-63.21,10.37],[-60.97,6.73],[-69.25,6.08],[-72.79,9.09],[-73.35,11.23]]]}},{type:'Feature',properties:{n:'Crimea'},geometry:{type:'Polygon',coordinates:[[[31.6,44.4],[31.6,46.2],[36.7,46.2],[36.7,44.4],[31.6,44.4]]]}},{type:'Feature',properties:{n:'Nagorno-Karabakh'},geometry:{type:'Polygon',coordinates:[[[46,39.4],[46,40.6],[47.8,40.6],[47.8,39.4],[46,39.4]]]}},{type:'Feature',properties:{n:'Myanmar'},geometry:{type:'Polygon',coordinates:[[[92.2,9.5],[92.2,28.5],[101.2,28.5],[101.2,9.5],[92.2,9.5]]]}},{type:'Feature',properties:{n:'Tigray/Ethiopia'},geometry:{type:'Polygon',coordinates:[[[36.5,11.5],[36.5,15.5],[42.5,15.5],[42.5,11.5],[36.5,11.5]]]}},{type:'Feature',properties:{n:'Mali/Sahel'},geometry:{type:'Polygon',coordinates:[[[-5.5,12],[-5.5,20.5],[4.2,20.5],[4.2,12],[-5.5,12]]]}},{type:'Feature',properties:{n:'Russia Border Zone'},geometry:{type:'Polygon',coordinates:[[[31,50.5],[31,52.3],[40.5,52.3],[40.5,50.5],[31,50.5]]]}}]};
+const FIRGJ={type:'FeatureCollection',features:[{type:'Feature',properties:{n:'Tehran FIR'},geometry:{type:'Polygon',coordinates:[[[44,25],[44,40],[64,40],[64,25],[44,25]]]}},{type:'Feature',properties:{n:'Baghdad FIR'},geometry:{type:'Polygon',coordinates:[[[38,29],[38,37.5],[49,37.5],[49,29],[38,29]]]}},{type:'Feature',properties:{n:'Dnipro FIR'},geometry:{type:'Polygon',coordinates:[[[28,44.5],[28,52.5],[40.5,52.5],[40.5,44.5],[28,44.5]]]}},{type:'Feature',properties:{n:'Sanaa FIR'},geometry:{type:'Polygon',coordinates:[[[42,12],[42,17],[54,17],[54,12],[42,12]]]}},{type:'Feature',properties:{n:'Kabul FIR'},geometry:{type:'Polygon',coordinates:[[[60.5,29],[60.5,39],[75,39],[75,29],[60.5,29]]]}},{type:'Feature',properties:{n:'Simferopol FIR'},geometry:{type:'Polygon',coordinates:[[[28,43],[28,47],[37,47],[37,43],[28,43]]]}},{type:'Feature',properties:{n:'Tripoli FIR'},geometry:{type:'Polygon',coordinates:[[[8,25],[8,35.5],[20,35.5],[20,25],[8,25]]]}},{type:'Feature',properties:{n:'Mogadishu FIR'},geometry:{type:'Polygon',coordinates:[[[37,2],[37,12],[52,12],[52,2],[37,2]]]}},{type:'Feature',properties:{n:'East Mediterranean'},geometry:{type:'Polygon',coordinates:[[[28,30],[28,38],[37,38],[37,30],[28,30]]]}},{type:'Feature',properties:{n:'Khartoum FIR'},geometry:{type:'Polygon',coordinates:[[[22,8],[22,23],[37,23],[37,8],[22,8]]]}}]};
+const GP_MOD=[[33,43.5,250],[28.5,61.5,150],[33,69,200]]; // MODERATE: Turkey/BlackSea, Finland/RU, Central Asia
+const GP_HI=[[35.5,34.5,350],[37,36.5,200],[52,26.5,300],[42.5,14.5,250],[37.6,48.5,300]]; // HIGH: EastMed, Syria, PersGulf, Yemen, Azerbaijan
+const GP_EXT=[[20.5,54.7,300],[37,46,200]]; // EXTREME: Kaliningrad, Georgia/BlackSea
 function cP(c,rk,n=48){const p=[];for(let i=0;i<=n;i++){const a=(i/n)*2*Math.PI;p.push([c[0]+(rk/(ER*Math.cos(c[1]*D2R)))*R2D*Math.cos(a),c[1]+(rk/ER)*R2D*Math.sin(a)]);}return[p];}
-const GPSGJ={type:'FeatureCollection',features:GP.map(g=>({type:'Feature',properties:{},geometry:{type:'Polygon',coordinates:cP([g[0],g[1]],g[2])}}))};
+function mkGPSGJ(pts){return{type:'FeatureCollection',features:pts.map(g=>({type:'Feature',properties:{},geometry:{type:'Polygon',coordinates:cP([g[0],g[1]],g[2])}}))}}
+const GPS_MOD_GJ=mkGPSGJ(GP_MOD),GPS_HI_GJ=mkGPSGJ(GP_HI),GPS_EXT_GJ=mkGPSGJ(GP_EXT);
 
 // ── Labels ──
 const COUNTRIES=[['United States',[39.8,-98.6]],['Canada',[56,-96]],['Brazil',[-14.2,-51.9]],['Russia',[61.5,105]],['China',[35.9,104.2]],['India',[20.6,79]],['Australia',[-25.3,133.8]],['Indonesia',[-0.8,113.9]],['Argentina',[-38.4,-63.6]],['Algeria',[28,1.7]],['Saudi Arabia',[23.9,45]],['Mexico',[23.6,-102.5]],['Kazakhstan',[48,67.5]],['Mongolia',[46.9,103.8]],['South Africa',[-30.6,22.9]],['Colombia',[4.6,-74.3]],['Iran',[32.4,53.7]],['Libya',[26.3,17.2]],['Chile',[-35.7,-71.5]],['Peru',[-9.2,-75]],['Egypt',[26.8,30.8]],['Nigeria',[9.1,8.7]],['Pakistan',[30.4,69.3]],['Turkey',[39.9,32.9]]];
@@ -196,7 +203,9 @@ function initGlobe(){
   const loadGJ=(name,gj,opts)=>{const ds=new Cesium.GeoJsonDataSource(name);ds.load(gj,opts).then(()=>viewer.dataSources.add(ds));prims[name]=ds;};
   loadGJ('nfz',NFZ,{fill:Cesium.Color.RED.withAlpha(.12),stroke:Cesium.Color.RED.withAlpha(.6),strokeWidth:2});
   loadGJ('fir',FIRGJ,{fill:Cesium.Color.ORANGE.withAlpha(.07),stroke:Cesium.Color.ORANGE.withAlpha(.5),strokeWidth:1});
-  loadGJ('gps',GPSGJ,{fill:Cesium.Color.MAGENTA.withAlpha(.07),stroke:Cesium.Color.MAGENTA.withAlpha(.4),strokeWidth:1});
+  loadGJ('gps_mod',GPS_MOD_GJ,{fill:Cesium.Color.fromCssColorString('#ffcc00').withAlpha(.08),stroke:Cesium.Color.fromCssColorString('#ffcc00').withAlpha(.5),strokeWidth:1});
+  loadGJ('gps_hi',GPS_HI_GJ,{fill:Cesium.Color.fromCssColorString('#ff6600').withAlpha(.10),stroke:Cesium.Color.fromCssColorString('#ff6600').withAlpha(.6),strokeWidth:1.5});
+  loadGJ('gps_ext',GPS_EXT_GJ,{fill:Cesium.Color.fromCssColorString('#ff2020').withAlpha(.14),stroke:Cesium.Color.fromCssColorString('#ff2020').withAlpha(.7),strokeWidth:2});
 
   // Labels
   const lds=new Cesium.CustomDataSource('labels');
@@ -230,7 +239,7 @@ function initGlobe(){
 
   handler.setInputAction(ck=>{const pk=viewer.scene.pick(ck.position);if(!pk?.primitive?._wv)return;const d=pk.primitive._wv;
     if(d.t==='ac'||d.t==='mil')showD(d.t==='mil'?'MILITARY TRACK':'AIRCRAFT TRACK',[['ICAO24',d.hex],['CALLSIGN',d.cs],['TYPE',d.type||'—'],['OPERATOR',d.r],['ALTITUDE',d.alt],['SPEED',d.spd],['HEADING',d.trk],['POSITION',N(d.lat)+', '+N(d.lon)]]);
-    else if(d.t==='sat')showD('SATELLITE',[['NAME',d.nm],['NORAD',d.nid],['GROUP',d.grp],['ALT',d.alt],['VEL',d.vel],['POS',N(d.lat)+', '+N(d.lon)]]);
+    else if(d.t==='sat')openSP(d.idx);
     else if(d.t==='shp')showD('VESSEL',[['MMSI',d.mmsi],['NAME',d.nm],['SOG',d.sog],['COG',d.cog],['POS',N(d.lat)+', '+N(d.lon)]]);
     else if(d.t==='cam'){const cam=cams.find(c=>c.id===d.id);if(cam)showC(cam);}
   },Cesium.ScreenSpaceEventType.LEFT_CLICK);
@@ -259,7 +268,7 @@ async function fetchAC(){
       (async()=>{try{const r=await fetch('https://api.airplanes.live/v2/mil_a/NONE');return r.ok?(await r.json()).ac||[]:[];}catch(e){return[];}})()
     ]);
     const now=Date.now();
-    rr.flat().concat(mr).forEach(a=>{if(a.hex&&a.lat!=null&&a.lon!=null)acCache[a.hex]={...a,_ts:now};});
+    rr.flat().concat(mr).forEach(a=>{if(a.hex&&a.lat!=null&&a.lon!=null){const ex=acCache[a.hex];acCache[a.hex]={...a,_ts:now,_trail:ex?._trail||[]};}});
     for(const k in acCache)if(now-acCache[k]._ts>90000)delete acCache[k];
     renderAC();setSS('ac','ok');
     const vals=Object.values(acCache);
@@ -331,6 +340,89 @@ async function fetchOpenSky(){
   }catch(e){log('OPENSKY','Error: '+e.message);}
 }
 
+// ── Satellite Tracking Panel ──
+function openSP(idx){
+  if(idx<0||idx>=satRecs.length)return;
+  satTrackIdx=idx;
+  document.getElementById('rp').classList.remove('vis');
+  document.getElementById('sp').classList.add('vis');
+  if(satTrackInt)clearInterval(satTrackInt);
+  updateSP();
+  satTrackInt=setInterval(updateSP,5000);
+}
+function closeSP(){
+  document.getElementById('sp').classList.remove('vis');
+  if(satTrackInt){clearInterval(satTrackInt);satTrackInt=null;}
+  satTrackIdx=null;
+  clearOrbitPath();
+  showOrbit=false;
+  const btn=document.getElementById('sp-orb-btn');
+  if(btn){btn.classList.remove('active');btn.textContent='⬡ SHOW ORBIT PATH';}
+}
+function updateSP(){
+  if(satTrackIdx===null||!satRecs[satTrackIdx])return;
+  const rec=satRecs[satTrackIdx];
+  const now=new Date();const gmst=satellite.gstime(now);
+  try{
+    const pv=satellite.propagate(rec.sr,now);
+    if(!pv.position)return;
+    const g=satellite.eciToGeodetic(pv.position,gmst);
+    const lon=satellite.degreesLong(g.longitude),lat=satellite.degreesLat(g.latitude);
+    const vel=pv.velocity?Math.sqrt(pv.velocity.x**2+pv.velocity.y**2+pv.velocity.z**2).toFixed(2)+' km/s':'—';
+    const inc=rec.sr.inclo?(rec.sr.inclo*R2D).toFixed(2)+'°':'—';
+    const periodMin=rec.sr.no?(2*Math.PI/rec.sr.no).toFixed(1)+' min':'—';
+    const nm=rec.nm.length>22?rec.nm.substring(0,22)+'…':rec.nm;
+    document.getElementById('sp-t').textContent=nm;
+    document.getElementById('sp-c').innerHTML=[
+      ['NAME',rec.nm],['NORAD ID',rec.nid],['GROUP',rec.grp.toUpperCase()],
+      ['LATITUDE',lat.toFixed(4)+'°'],['LONGITUDE',lon.toFixed(4)+'°'],
+      ['ALTITUDE',g.height.toFixed(1)+' km'],['VELOCITY',vel],
+      ['INCLINATION',inc],['PERIOD',periodMin],
+      ['UTC',now.toISOString().substr(11,19)+' Z']
+    ].map(([l,v])=>`<div class="dr"><span class="dl">${l}</span><span class="dv">${v}</span></div>`).join('');
+  }catch(e){}
+}
+function toggleOrbitPath(){
+  showOrbit=!showOrbit;
+  const btn=document.getElementById('sp-orb-btn');
+  if(!btn)return;
+  btn.classList.toggle('active',showOrbit);
+  btn.textContent=showOrbit?'⬡ HIDE ORBIT PATH':'⬡ SHOW ORBIT PATH';
+  if(!showOrbit){clearOrbitPath();viewer.scene.requestRender();return;}
+  drawOrbitPath();
+}
+function clearOrbitPath(){
+  if(orbitPathDS){viewer.dataSources.remove(orbitPathDS);orbitPathDS=null;}
+}
+function drawOrbitPath(){
+  clearOrbitPath();
+  if(satTrackIdx===null||!satRecs[satTrackIdx])return;
+  const rec=satRecs[satTrackIdx];
+  const now=new Date();
+  // Use satellite's orbital period if available, else default to 100 min
+  const periodMs=rec.sr.no?((2*Math.PI/rec.sr.no)*60000):6000000;
+  const numPts=120;const dtMs=periodMs/numPts;
+  const pts=[];
+  for(let i=0;i<=numPts;i++){
+    try{
+      const t=new Date(now.getTime()+i*dtMs);
+      const gmst=satellite.gstime(t);
+      const pv=satellite.propagate(rec.sr,t);
+      if(!pv.position)continue;
+      const g=satellite.eciToGeodetic(pv.position,gmst);
+      const lon=satellite.degreesLong(g.longitude),lat=satellite.degreesLat(g.latitude);
+      if(isNaN(lon)||isNaN(lat))continue;
+      pts.push(Cesium.Cartesian3.fromDegrees(lon,lat,g.height*1000));
+    }catch(e){}
+  }
+  if(pts.length<2){notify('Orbit path unavailable','warn');return;}
+  orbitPathDS=new Cesium.CustomDataSource('orbitPath');
+  orbitPathDS.entities.add({polyline:{positions:pts,width:1.5,material:new Cesium.PolylineDashMaterialProperty({color:Cesium.Color.fromCssColorString('#ffffcc').withAlpha(.7),dashLength:16})}});
+  viewer.dataSources.add(orbitPathDS);
+  viewer.scene.requestRender();
+  log('SAT','Orbit path: '+pts.length+' pts, period '+(periodMs/60000).toFixed(0)+'min, '+rec.nm);
+}
+
 // ── Satellites: Create points ONCE, update positions in animation loop ──
 let satPts=[];  // array of point primitive references
 async function fetchSats(){
@@ -349,7 +441,7 @@ async function fetchSats(){
   satPtCol.removeAll();satPts=[];
   for(let i=0;i<satRecs.length;i++){
     const pt=satPtCol.add({position:Cesium.Cartesian3.ZERO,pixelSize:3.5,color:Cesium.Color.fromCssColorString('#ffffcc'),outlineColor:Cesium.Color.WHITE.withAlpha(.4),outlineWidth:1,show:false,scaleByDistance:new Cesium.NearFarScalar(1e5,1,1e7,.3)});
-    pt._wv={t:'sat',nm:satRecs[i].nm,nid:satRecs[i].nid,grp:satRecs[i].grp,alt:'',vel:'',lat:0,lon:0};
+    pt._wv={t:'sat',idx:i,nm:satRecs[i].nm,nid:satRecs[i].nid,grp:satRecs[i].grp,alt:'',vel:'',lat:0,lon:0};
     satPts.push(pt);
   }
   log('TLE','Created '+satPts.length+' point primitives');
