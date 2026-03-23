@@ -380,27 +380,54 @@ const shipIcn=makeIcon((x,s)=>{const r=s/2-1;x.translate(s/2,s/2);
 const satIcn=makeEmojiIcon('🛰',26,'#ffffaa');
 const camIcn=makeEmojiIcon('📷',22,'#ff6655');
 
-// BVG transit dot icons — colored circles per product type (BVG official colors)
-function makeDotIcon(col,sz){
+// BVG transit directional icons — top-down vehicle silhouettes, nose pointing up
+// Supports 'train' (pointed nose), 'bus' (blunt front + nub), 'ferry' (wide boat)
+function makeTransitIcon(col,W,H,type){
   const dpr=Math.min(window.devicePixelRatio||1,2);
-  const c=document.createElement('canvas');c.width=sz*dpr;c.height=sz*dpr;
+  const c=document.createElement('canvas');c.width=W*dpr;c.height=H*dpr;
   const x=c.getContext('2d');x.scale(dpr,dpr);
-  x.shadowColor='rgba(0,0,0,0.5)';x.shadowBlur=3;
-  x.fillStyle=col;x.beginPath();x.arc(sz/2,sz/2,sz/2-1,0,Math.PI*2);x.fill();
-  x.shadowBlur=0;x.strokeStyle='rgba(255,255,255,0.75)';x.lineWidth=1.5;x.stroke();
-  // Inner letter area — small white dot for visibility
-  x.fillStyle='rgba(255,255,255,0.25)';x.beginPath();x.arc(sz/2,sz/2,sz/4,0,Math.PI*2);x.fill();
+  function rr(lx,ly,lw,lh,r){x.beginPath();x.moveTo(lx+r,ly);x.lineTo(lx+lw-r,ly);x.arcTo(lx+lw,ly,lx+lw,ly+r,r);x.lineTo(lx+lw,ly+lh-r);x.arcTo(lx+lw,ly+lh,lx+lw-r,ly+lh,r);x.lineTo(lx+r,ly+lh);x.arcTo(lx,ly+lh,lx,ly+lh-r,r);x.lineTo(lx,ly+r);x.arcTo(lx,ly,lx+r,ly,r);x.closePath();}
+  x.shadowColor='rgba(0,0,0,0.5)';x.shadowBlur=2;x.shadowOffsetY=1;
+  x.fillStyle=col;
+  if(type==='train'){
+    // Pointed nose at top, body tapers to blunt tail
+    x.beginPath();x.moveTo(W/2,0.5);x.lineTo(W-0.5,H*0.28);x.lineTo(W-0.5,H-1.5);x.arcTo(W-0.5,H-0.5,W/2,H-0.5,1.5);x.arcTo(0.5,H-0.5,0.5,H-1.5,1.5);x.lineTo(0.5,H*0.28);x.closePath();x.fill();
+    x.shadowBlur=0;
+    x.fillStyle='rgba(180,230,255,0.7)';x.fillRect(1.5,H*0.25,W-3,H*0.14);  // front window
+    x.fillStyle='rgba(180,230,255,0.4)';x.fillRect(1.5,H*0.44,W-3,H*0.33);  // side windows
+    x.strokeStyle='rgba(0,0,0,0.45)';x.lineWidth=0.7;
+    x.beginPath();x.moveTo(W/2,0.5);x.lineTo(W-0.5,H*0.28);x.lineTo(W-0.5,H-1.5);x.arcTo(W-0.5,H-0.5,W/2,H-0.5,1.5);x.arcTo(0.5,H-0.5,0.5,H-1.5,1.5);x.lineTo(0.5,H*0.28);x.closePath();x.stroke();
+  }else if(type==='ferry'){
+    // Wide boat — rounded hull + pointed bow
+    x.beginPath();x.moveTo(W/2,0.5);x.lineTo(W-0.5,H*0.32);x.lineTo(W-0.5,H*0.82);x.arcTo(W-0.5,H-0.5,W/2,H-0.5,3);x.arcTo(0.5,H-0.5,0.5,H*0.82,3);x.lineTo(0.5,H*0.32);x.closePath();x.fill();
+    x.shadowBlur=0;
+    x.fillStyle='rgba(200,240,255,0.35)';x.fillRect(2,H*0.35,W-4,H*0.42);
+    x.strokeStyle='rgba(0,0,0,0.45)';x.lineWidth=0.7;
+    x.beginPath();x.moveTo(W/2,0.5);x.lineTo(W-0.5,H*0.32);x.lineTo(W-0.5,H*0.82);x.arcTo(W-0.5,H-0.5,W/2,H-0.5,3);x.arcTo(0.5,H-0.5,0.5,H*0.82,3);x.lineTo(0.5,H*0.32);x.closePath();x.stroke();
+  }else{
+    // Bus / Tram: blunt rect + small direction nub at front
+    rr(0.5,2,W-1,H-2.5,1.5);x.fill();
+    x.shadowBlur=0;
+    x.fillStyle='rgba(180,230,255,0.65)';x.fillRect(1.5,2.5,W-3,H*0.18);  // windscreen
+    x.fillStyle='rgba(180,230,255,0.38)';x.fillRect(1.5,H*0.3,W-3,H*0.38); // windows
+    // Tiny direction triangle at nose
+    x.fillStyle=col;x.beginPath();x.moveTo(W/2,0.4);x.lineTo(W*0.68,2.2);x.lineTo(W*0.32,2.2);x.closePath();x.fill();
+    x.strokeStyle='rgba(0,0,0,0.45)';x.lineWidth=0.7;
+    rr(0.5,2,W-1,H-2.5,1.5);x.stroke();
+  }
   return c;
 }
 const BVG_ICONS={
-  suburban: makeDotIcon('#009b4e',13),  // S-Bahn green
-  subway:   makeDotIcon('#1765af',13),  // U-Bahn blue
-  tram:     makeDotIcon('#be1414',11),  // Tram red
-  bus:      makeDotIcon('#7a3fa5',11),  // Bus purple (BVG brand)
-  ferry:    makeDotIcon('#009bd5',12),  // Ferry cyan
-  regional: makeDotIcon('#607372',12),  // Regional grey
-  express:  makeDotIcon('#ec0016',14),  // Express/ICE red
+  suburban: makeTransitIcon('#009b4e',6,17,'train'),  // S-Bahn green
+  subway:   makeTransitIcon('#1765af',6,15,'train'),  // U-Bahn blue
+  tram:     makeTransitIcon('#be1414',9,13,'bus'),    // Tram red
+  bus:      makeTransitIcon('#7a3fa5',8,12,'bus'),    // Bus purple (BVG brand)
+  ferry:    makeTransitIcon('#009bd5',13,10,'ferry'), // Ferry cyan
+  regional: makeTransitIcon('#607372',6,17,'train'),  // Regional grey
+  express:  makeTransitIcon('#ec0016',7,19,'train'),  // Express/ICE red
 };
+// [W,H] per product — used when assigning billboard size in fetchBVG
+const BVG_SIZES={suburban:[6,17],subway:[6,15],tram:[9,13],bus:[8,12],ferry:[13,10],regional:[6,17],express:[7,19]};
 
 // Car icon factory — top-down silhouette 8×14px, nose at top, rotated via UNIT_Z
 function makeCarIcon(col){
@@ -490,7 +517,7 @@ function initGlobe(){
   // BVG transit vehicle pool — 1000 pre-allocated slots, icons assigned at fetch time
   prims.bvgBB=viewer.scene.primitives.add(new Cesium.BillboardCollection());
   for(let i=0;i<1000;i++){
-    const bb=prims.bvgBB.add({position:Cesium.Cartesian3.fromDegrees(13.4,52.5,50),image:BVG_ICONS.bus,width:11,height:11,show:false,scaleByDistance:new Cesium.NearFarScalar(500,2.0,3e5,0.5)});
+    const bb=prims.bvgBB.add({position:Cesium.Cartesian3.fromDegrees(13.4,52.5,50),image:BVG_ICONS.bus,width:8,height:12,rotation:0,alignedAxis:Cesium.Cartesian3.UNIT_Z,show:false,scaleByDistance:new Cesium.NearFarScalar(500,2.5,3e5,0.6)});
     bvgPool.push(bb);
   }
 
@@ -1127,18 +1154,31 @@ async function fetchBVG(){
     // frames=1 → {movements:[...]}; bare array fallback
     const raw=Array.isArray(data)?data[0]??data:data;
     const list=Array.isArray(raw)?raw:Array.isArray(raw.movements)?raw.movements:[];
+    // Typical ground speeds in m/s per product — used for dead-reckoning between fetches
+    const BVG_SPD={suburban:16.7,subway:9.7,tram:5.6,bus:5.6,ferry:4.2,regional:22.2,express:33.3};
     let ci=0;
     for(const v of list){
       if(ci>=bvgPool.length)break;
       const loc=v.location;if(!loc?.latitude||!loc?.longitude)continue;
       const prod=v.line?.product||'bus';
       const icn=BVG_ICONS[prod]||BVG_ICONS.bus;
-      const sz=prod==='suburban'||prod==='subway'||prod==='express'?13:11;
+      const [sw,sh]=(BVG_SIZES[prod]||BVG_SIZES.bus);
+      const bearing=(v.bearing??v.currentTripPosition?.bearing??null);
       const bb=bvgPool[ci];
+      // Blend if vehicle has already moved since last fetch
+      const old=bb._wv;
+      if(old?._drPos&&(Math.abs(old._drPos[0]-loc.longitude)>5e-5||Math.abs(old._drPos[1]-loc.latitude)>5e-5)){
+        old._blendFrom=old._drPos.slice();old._blendStart=Date.now();
+      }
       bb.position=Cesium.Cartesian3.fromDegrees(loc.longitude,loc.latitude,50);
-      bb.image=icn;bb.width=sz;bb.height=sz;
+      bb.image=icn;bb.width=sw;bb.height=sh;
+      if(bearing!=null)bb.rotation=Cesium.Math.toRadians(-bearing);
       bb.show=true;
-      bb._wv={t:'bvg',line:v.line?.name||'?',prod,dir:v.direction||''};
+      bb._wv={t:'bvg',line:v.line?.name||'?',prod,dir:v.direction||'',
+              _lat:loc.latitude,_lon:loc.longitude,_ts:Date.now(),
+              _bearing:bearing??0,_hasBearing:bearing!=null,
+              _spd:BVG_SPD[prod]||5.6,
+              _blendFrom:old?._blendFrom,_blendStart:old?._blendStart};
       ci++;
     }
     for(let i=ci;i<bvgPool.length;i++)bvgPool[i].show=false;
@@ -1184,7 +1224,7 @@ async function fetchNINA(){
 }
 
 // ═══ ANIMATION ═══
-let lastSatProp=0,_lastInterp=0,_lastShipInterp=0,_lastTrailUpdate=0,_lastTrafficUpdate=0;
+let lastSatProp=0,_lastInterp=0,_lastShipInterp=0,_lastBVGInterp=0,_lastTrailUpdate=0,_lastTrafficUpdate=0;
 
 // Dead-reckoning at 30fps: smoothly advances aircraft positions using heading + speed.
 // Uses smoothstep blend to correct from predicted→actual when new API data arrives.
@@ -1258,6 +1298,36 @@ function interpShip(){
   }
 }
 
+// BVG transit dead-reckoning: advances vehicle positions between 30s radar refreshes.
+// Uses bearing + typical product speed; smoothstep-blends when new API fix arrives.
+function interpBVG(){
+  const now=Date.now();
+  for(const bb of bvgPool){
+    if(!bb.show||!bb._wv)continue;
+    const w=bb._wv;
+    if(!w._ts||!w._hasBearing||w._spd<0.5)continue;
+    const dt=(now-w._ts)/1000;
+    if(dt>60||dt<0)continue;
+    const dist=w._spd*dt;
+    const b=w._bearing*D2R;
+    const lat1=w._lat*D2R,lon1=w._lon*D2R;
+    const ad=dist/ER;
+    const lat2=Math.asin(Math.sin(lat1)*Math.cos(ad)+Math.cos(lat1)*Math.sin(ad)*Math.cos(b));
+    const lon2=lon1+Math.atan2(Math.sin(b)*Math.sin(ad)*Math.cos(lat1),Math.cos(ad)-Math.sin(lat1)*Math.sin(lat2));
+    if(isNaN(lat2)||isNaN(lon2))continue;
+    let drLon=lon2*R2D,drLat=lat2*R2D;
+    if(w._blendFrom&&w._blendStart){
+      const bt=Math.min(1,(now-w._blendStart)/4000);
+      const ease=bt*bt*(3-2*bt);
+      drLon=w._blendFrom[0]*(1-ease)+drLon*ease;
+      drLat=w._blendFrom[1]*(1-ease)+drLat*ease;
+      if(bt>=1){w._blendFrom=null;w._blendStart=null;}
+    }
+    w._drPos=[drLon,drLat];
+    bb.position=Cesium.Cartesian3.fromDegrees(drLon,drLat,50);
+  }
+}
+
 function startAnim(){
   (function frame(ts){
     const _now=new Date();
@@ -1269,6 +1339,8 @@ function startAnim(){
     if(ts-_lastInterp>33){interpAC();_lastInterp=ts;}
     // Ship dead-reckoning: ~5fps (200ms) — ships are slow, no need for 30fps
     if(ts-_lastShipInterp>200){interpShip();_lastShipInterp=ts;}
+    // BVG transit dead-reckoning: ~5fps (200ms)
+    if(ts-_lastBVGInterp>200){interpBVG();_lastBVGInterp=ts;}
     // Traffic flow: ~10fps (100ms), only when layer is active and camera is close enough
     if(ts-_lastTrafficUpdate>100){updateTraffic();_lastTrafficUpdate=ts;}
     // Trail updates: every 3s (cheaper, runs less often)
