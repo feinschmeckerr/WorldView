@@ -265,40 +265,44 @@ let satTrackIdx=null,satTrackInt=null,orbitPathDS=null,showOrbit=false;
 let _dockOpen=false;
 function toggleDock(){_dockOpen=!_dockOpen;document.getElementById('dock-panel').classList.toggle('open',_dockOpen);document.getElementById('dock-toggle').textContent=_dockOpen?'▼':'▲';}
 
-// ── Camera Follow / Track ──
-let _followInt=null,_followGetPos=null,_followGetHdg=null,_followDist=2e6,_followWheelFn=null;
+// ── Camera Follow — uses Cesium trackedEntity so zoom + orbit still work ──
+let _trackedEntity=null,_followGetPos=null,_followGetHdg=null,_followDist=1e6;
 function startFollow(getPosFn,getHdgFn){
   stopFollow();
-  if(viewer)_followDist=Math.max(2e4,Math.min(viewer.camera.positionCartographic.height,1.5e7));
+  if(viewer)_followDist=Math.max(5e4,Math.min(viewer.camera.positionCartographic.height,8e6));
   _followGetPos=getPosFn;_followGetHdg=getHdgFn||null;
-  // Wheel / pinch zoom while locked — adjust follow distance
-  _followWheelFn=e=>{if(!_followGetPos)return;_followDist=Math.max(1000,Math.min(_followDist*(e.deltaY>0?1.28:0.78),2e7));};
-  if(viewer)viewer.scene.canvas.addEventListener('wheel',_followWheelFn,{passive:true});
-  _followInt=setInterval(()=>{
-    const pos=_followGetPos?.();if(!pos||!viewer)return;
-    const hdgDeg=_followGetHdg?.()??0;
-    // Place camera behind object (opposite of travel direction), look down at ~28°
-    const hdgRad=Cesium.Math.toRadians((hdgDeg+180)%360);
-    viewer.camera.lookAt(Cesium.Cartesian3.fromDegrees(pos[0],pos[1],pos[2]),
-      new Cesium.HeadingPitchRange(hdgRad,Cesium.Math.toRadians(-28),_followDist));
-  },100);
+  let _lastPos=Cesium.Cartesian3.ZERO;
+  _trackedEntity=viewer.entities.add({
+    position:new Cesium.CallbackProperty(()=>{
+      const p=_followGetPos?.();
+      if(p)_lastPos=Cesium.Cartesian3.fromDegrees(p[0],p[1],p[2]);
+      return _lastPos;
+    },false),
+    point:{pixelSize:0,color:Cesium.Color.TRANSPARENT}
+  });
+  viewer.trackedEntity=_trackedEntity;
+  // Orient camera behind object facing direction of travel
+  const hdg=_followGetHdg?.()??0;
+  viewer.zoomTo(_trackedEntity,new Cesium.HeadingPitchRange(
+    Cesium.Math.toRadians((hdg+180)%360),Cesium.Math.toRadians(-25),_followDist));
 }
 function stopFollow(){
-  if(_followInt){clearInterval(_followInt);_followInt=null;}
-  if(_followWheelFn&&viewer){viewer.scene.canvas.removeEventListener('wheel',_followWheelFn);_followWheelFn=null;}
+  if(viewer){
+    if(viewer.trackedEntity===_trackedEntity)viewer.trackedEntity=undefined;
+    if(_trackedEntity){viewer.entities.remove(_trackedEntity);_trackedEntity=null;}
+  }
   _followGetPos=null;_followGetHdg=null;
-  if(viewer){try{viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);}catch(e){}}
   const fb=document.getElementById('rp-follow');if(fb){fb.classList.remove('active');fb.textContent='⊕ TRACK';}
   const fsb=document.getElementById('sp-follow-btn');if(fsb){fsb.classList.remove('active');fsb.textContent='⊕ TRACK SATELLITE';}
 }
 function toggleFollow(){
   const fb=document.getElementById('rp-follow');if(!fb)return;
-  if(_followGetPos){stopFollow();notify('CAMERA UNLOCKED');}
+  if(_trackedEntity){stopFollow();notify('CAMERA UNLOCKED');}
   else if(fb._followFn){startFollow(fb._followFn,fb._followHdgFn);fb.classList.add('active');fb.textContent='⊗ UNTRACK';notify('CAMERA LOCKED');}
 }
 function toggleFollowSat(){
   const btn=document.getElementById('sp-follow-btn');if(!btn)return;
-  if(_followGetPos){stopFollow();notify('CAMERA UNLOCKED');}
+  if(_trackedEntity){stopFollow();notify('CAMERA UNLOCKED');}
   else{
     if(satTrackIdx===null)return;
     startFollow(()=>{const pt=satPts[satTrackIdx];if(!pt||!pt.show||!pt._wv)return null;return[pt._wv.lon,pt._wv.lat,(parseFloat(pt._wv.alt)||500)*1000];});
@@ -324,22 +328,38 @@ function tgl(n){layers[n]=layers[n]?0:1;const el=document.querySelector(`.lc[dat
 const MIL=['AE','AF1','AF2','CFC','CNV','DUKE','EVIL','FURY','HAWK','IRON','JAKE','KING','NAVY','NCHO','OTTO','PAT','RAGE','RCH','RED','RFF','RRR','SAM','SNTRY','TOPCT','VIPER','WOLF','IAM','BAF','GAF','FAF','SHF','RFR','MMF','PLF','HUF','SVF','NRF','JEDI','SPAR','EVAC'];
 function isMil(cs){if(!cs)return false;const u=cs.trim().toUpperCase();return MIL.some(p=>u.startsWith(p));}
 
-// ── Emoji icons — consistent with layer chip symbols, HiDPI-aware ──
-function makeEmojiIcon(em,sz,glow){
-  const dpr=Math.min(window.devicePixelRatio||1,2);
-  const c=document.createElement('canvas');c.width=sz*dpr;c.height=sz*dpr;
-  const ctx=c.getContext('2d');ctx.scale(dpr,dpr);
-  ctx.shadowColor=glow;ctx.shadowBlur=10;
-  ctx.font=`${Math.round(sz*.74)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
-  ctx.textAlign='center';ctx.textBaseline='middle';
-  ctx.fillText(em,sz/2,sz/2);
-  return c;
-}
-const acIconG=makeEmojiIcon('✈',38,'#00ff88');   // civil aircraft
-const acIconR=makeEmojiIcon('⚔',36,'#ff3344');   // military
-const shipIcn=makeEmojiIcon('🚢',30,'#00ddff');  // vessel
-const satIcn =makeEmojiIcon('🛰',26,'#ffffaa');  // satellite
-const camIcn =makeEmojiIcon('📷',22,'#ff6655');  // CCTV camera
+// ── Icons — HiDPI-aware, created ONCE ──
+// Directional icons (aircraft, ship) are drawn pointing NORTH so Cesium rotation works correctly.
+// Static icons (satellite, CCTV) use emoji (no rotation needed).
+function makeIcon(draw,sz){const dpr=Math.min(window.devicePixelRatio||1,2);const c=document.createElement('canvas');c.width=sz*dpr;c.height=sz*dpr;const ctx=c.getContext('2d');ctx.scale(dpr,dpr);draw(ctx,sz);return c;}
+function makeEmojiIcon(em,sz,glow){const dpr=Math.min(window.devicePixelRatio||1,2);const c=document.createElement('canvas');c.width=sz*dpr;c.height=sz*dpr;const ctx=c.getContext('2d');ctx.scale(dpr,dpr);ctx.shadowColor=glow;ctx.shadowBlur=10;ctx.font=`${Math.round(sz*.74)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(em,sz/2,sz/2);return c;}
+
+// Aircraft silhouette — swept wings, nose at top (north), tail at bottom
+const _acDraw=(x,s,col)=>{const r=s/2-1;x.translate(s/2,s/2);
+  // Fuselage + wings as single path
+  x.beginPath();x.moveTo(0,-r);                  // nose (north)
+  x.lineTo(2.5,-r*.35);x.lineTo(2.5,r*.08);       // right fuselage shoulder
+  x.lineTo(r*.88,r*.32);x.lineTo(r*.6,r*.52);     // right wing
+  x.lineTo(2.5,r*.38);                             // wing root right
+  x.lineTo(r*.3,r*.95);x.lineTo(0,r*.78);         // right tail fin
+  x.lineTo(-r*.3,r*.95);x.lineTo(-2.5,r*.38);     // left tail fin
+  x.lineTo(-r*.6,r*.52);x.lineTo(-r*.88,r*.32);   // left wing
+  x.lineTo(-2.5,r*.08);x.lineTo(-2.5,-r*.35);     // left fuselage shoulder
+  x.closePath();
+  x.fillStyle=col;x.shadowColor=col;x.shadowBlur=8;x.fill();
+  x.strokeStyle='rgba(0,0,0,.55)';x.lineWidth=1.2;x.shadowBlur=0;x.stroke();};
+const acIconG=makeIcon((x,s)=>_acDraw(x,s,'#00ff88'),38);
+const acIconR=makeIcon((x,s)=>_acDraw(x,s,'#ff4455'),38);
+
+// Ship hull — pointed bow at top (north), flat stern at bottom
+const shipIcn=makeIcon((x,s)=>{const r=s/2-1;x.translate(s/2,s/2);
+  x.beginPath();x.moveTo(0,-r);x.lineTo(r*.52,-r*.08);x.lineTo(r*.56,r*.38);x.lineTo(r*.3,r);x.lineTo(-r*.3,r);x.lineTo(-r*.56,r*.38);x.lineTo(-r*.52,-r*.08);x.closePath();
+  x.fillStyle='#00ddff';x.shadowColor='#00ddff';x.shadowBlur=6;x.fill();
+  x.strokeStyle='rgba(0,0,0,.5)';x.lineWidth=1;x.shadowBlur=0;x.stroke();},22);
+
+// Satellite and CCTV — emoji (static, no rotation)
+const satIcn=makeEmojiIcon('🛰',26,'#ffffaa');
+const camIcn=makeEmojiIcon('📷',22,'#ff6655');
 let _selBB=null; // currently highlighted billboard
 
 // ── Zone GeoJSON ──
@@ -377,13 +397,20 @@ function initGlobe(){
   viewer.scene.backgroundColor=Cesium.Color.BLACK;
   viewer.scene.globe.baseColor=Cesium.Color.BLACK;
   const ctrl=viewer.scene.screenSpaceCameraController;
-  // Touch feel like Google Maps / Apple Maps:
-  // Single finger = rotate/pan globe, Pinch = zoom only, no accidental tilt
+  // Touch / mouse controls:
+  //   1 finger / left drag  = rotate/pan globe
+  //   Pinch                 = zoom (only, no accidental tilt)
+  //   2 finger same-dir     = tilt (MIDDLE_DRAG on touch)
+  //   Ctrl + left drag      = tilt on desktop
   ctrl.zoomEventTypes=[Cesium.CameraEventType.WHEEL,Cesium.CameraEventType.PINCH];
   ctrl.rotateEventTypes=[Cesium.CameraEventType.LEFT_DRAG];
-  ctrl.tiltEventTypes=[Cesium.CameraEventType.MIDDLE_DRAG,{eventType:Cesium.CameraEventType.LEFT_DRAG,modifier:Cesium.KeyboardEventModifier.CTRL}];
-  ctrl.inertiaSpin=0.9;ctrl.inertiaZoom=0.9;ctrl.inertiaTranslate=0.9;
-  ctrl.zoomFactor=2.5;ctrl.minimumZoomDistance=100;
+  ctrl.tiltEventTypes=[Cesium.CameraEventType.MIDDLE_DRAG,
+    {eventType:Cesium.CameraEventType.LEFT_DRAG,modifier:Cesium.KeyboardEventModifier.CTRL}];
+  ctrl.inertiaSpin=0.88;       // smooth panning inertia
+  ctrl.inertiaZoom=0.7;        // reduced zoom inertia — stops quickly, no "zoom forever"
+  ctrl.inertiaTranslate=0.88;
+  ctrl.zoomFactor=5.0;         // Cesium default — fast enough response per step
+  ctrl.minimumZoomDistance=80;
   ctrl.enableLook=false;
 
   // Primitives — created ONCE, never destroyed
