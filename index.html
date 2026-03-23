@@ -265,52 +265,52 @@ let satTrackIdx=null,satTrackInt=null,orbitPathDS=null,showOrbit=false;
 let _dockOpen=false;
 function toggleDock(){_dockOpen=!_dockOpen;document.getElementById('dock-panel').classList.toggle('open',_dockOpen);document.getElementById('dock-toggle').textContent=_dockOpen?'▼':'▲';}
 
-// ── Camera Follow — uses Cesium trackedEntity so zoom + orbit still work ──
-let _trackedEntity=null,_followGetPos=null,_followGetHdg=null,_followDist=1e6;
+// ── Camera Follow — postRender lookAt keeps object centred; zoom + orbit free ──
+let _followPR=null,_followGetPos=null,_followGetHdg=null;
 function startFollow(getPosFn,getHdgFn){
   stopFollow();
-  if(viewer)_followDist=Math.max(5e4,Math.min(viewer.camera.positionCartographic.height,8e6));
-  _followGetPos=getPosFn;_followGetHdg=getHdgFn||null;
   const initPos=getPosFn();
   if(!initPos){notify('OBJECT NOT FOUND','warn');return;}
-  let _lastPos=Cesium.Cartesian3.fromDegrees(initPos[0],initPos[1],initPos[2]);
-  _trackedEntity=viewer.entities.add({
-    position:new Cesium.CallbackProperty(()=>{
-      const p=_followGetPos?.();
-      if(p)_lastPos=Cesium.Cartesian3.fromDegrees(p[0],p[1],p[2]);
-      return _lastPos;
-    },false),
-    point:{pixelSize:0,color:Cesium.Color.TRANSPARENT}
-  });
-  const hdg=_followGetHdg?.()??0;
-  const hpr=new Cesium.HeadingPitchRange(
-    Cesium.Math.toRadians((hdg+180)%360),  // camera behind object, looking forward
-    Cesium.Math.toRadians(-25),             // slight downward angle
-    _followDist
-  );
-  // Fly to the entity FIRST (establishes correct camera position), THEN lock tracking.
-  // If trackedEntity were set first, Cesium would immediately override the flyTo offset.
-  viewer.flyTo(_trackedEntity,{offset:hpr,duration:1.5}).then(()=>{
-    if(_trackedEntity)viewer.trackedEntity=_trackedEntity;
+  _followGetPos=getPosFn;_followGetHdg=getHdgFn||null;
+  const dist=Math.max(5e4,Math.min(viewer.camera.positionCartographic.height,8e6));
+  const hdg=getHdgFn?.()??0;
+  const objPos=Cesium.Cartesian3.fromDegrees(initPos[0],initPos[1],initPos[2]);
+  // Fly overhead: heading aligned to movement direction, steep pitch = top-down view
+  viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(objPos,1000),{
+    offset:new Cesium.HeadingPitchRange(
+      Cesium.Math.toRadians(hdg),   // "up on screen" = direction of travel
+      Cesium.Math.toRadians(-75),   // steep overhead angle (not ego)
+      dist
+    ),
+    duration:1.5,
+    complete:()=>{
+      if(!_followGetPos)return;  // was stopped during fly
+      // postRender: each frame re-centre camera on object keeping user heading/pitch/range
+      _followPR=viewer.scene.postRender.addEventListener(()=>{
+        const p=_followGetPos?.();if(!p)return;
+        const pos=Cesium.Cartesian3.fromDegrees(p[0],p[1],p[2]);
+        const range=Cesium.Cartesian3.distance(viewer.camera.position,pos);
+        viewer.camera.lookAt(pos,new Cesium.HeadingPitchRange(
+          viewer.camera.heading,viewer.camera.pitch,range));
+      });
+    }
   });
 }
 function stopFollow(){
-  if(viewer){
-    if(viewer.trackedEntity===_trackedEntity)viewer.trackedEntity=undefined;
-    if(_trackedEntity){viewer.entities.remove(_trackedEntity);_trackedEntity=null;}
-  }
+  if(_followPR){_followPR();_followPR=null;}
+  if(viewer)viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
   _followGetPos=null;_followGetHdg=null;
   const fb=document.getElementById('rp-follow');if(fb){fb.classList.remove('active');fb.textContent='⊕ TRACK';}
   const fsb=document.getElementById('sp-follow-btn');if(fsb){fsb.classList.remove('active');fsb.textContent='⊕ TRACK SATELLITE';}
 }
 function toggleFollow(){
   const fb=document.getElementById('rp-follow');if(!fb)return;
-  if(_trackedEntity){stopFollow();notify('CAMERA UNLOCKED');}
+  if(_followPR){stopFollow();notify('CAMERA UNLOCKED');}
   else if(fb._followFn){startFollow(fb._followFn,fb._followHdgFn);fb.classList.add('active');fb.textContent='⊗ UNTRACK';notify('CAMERA LOCKED');}
 }
 function toggleFollowSat(){
   const btn=document.getElementById('sp-follow-btn');if(!btn)return;
-  if(_trackedEntity){stopFollow();notify('CAMERA UNLOCKED');}
+  if(_followPR){stopFollow();notify('CAMERA UNLOCKED');}
   else{
     if(satTrackIdx===null)return;
     startFollow(()=>{const pt=satPts[satTrackIdx];if(!pt||!pt.show||!pt._wv)return null;return[pt._wv.lon,pt._wv.lat,(parseFloat(pt._wv.alt)||500)*1000];});
