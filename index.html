@@ -573,7 +573,7 @@ async function fetchAC(){
     rr.flat().concat(mr).forEach(a=>{
       if(a.hex&&a.lat!=null&&a.lon!=null){
         const ex=acCache[a.hex];
-        const entry={...a,_ts:now,_trail:ex?._trail||[],_drPos:ex?._drPos};
+        const entry={...a,_ts:now,_trail:ex?._trail||[],_drPos:ex?._drPos,_trailTs:ex?._trailTs};
         // If aircraft already has a dead-reckoned position, set up a smooth blend
         // from that position to wherever the new dead-reckoning will take it
         if(ex?._drPos){
@@ -626,8 +626,6 @@ function renderAC(){
       const bb=(mil?milBB:acBB).add({position:pos,image:mil?acIconR:acIconG,width:mil?28:26,height:mil?28:26,rotation:rot,alignedAxis:Cesium.Cartesian3.UNIT_Z,scaleByDistance:new Cesium.NearFarScalar(1e4,1.1,5e6,.2)});
       bb._wv=wv;track[a.hex]=bb;
     }
-    // Trail append
-    if(!a._trail)a._trail=[];a._trail.push([a.lon,a.lat,altM||100]);if(a._trail.length>80)a._trail.shift();
     if(mil)milN++;else civN++;
   });
   // Hide billboards for aircraft gone from cache or that switched civ↔mil status
@@ -883,7 +881,9 @@ function initTraffic(){
 
 function updateTraffic(){
   if(!layers.traffic||!prims.trafficBB)return;
-  // translucencyByDistance handles visibility fade — just update all positions
+  const h=viewer.camera.positionCartographic.height;
+  // Below 20 km: hide — waypoint spacing (~10–50 km) is too coarse to follow road curves
+  if(h<2e4){carPool.forEach(c=>{c.bb.show=false;});return;}
   for(const car of carPool){
     car.t+=car.spd;car.t=((car.t%1)+1)%1;
     const[lon,lat,hdg]=_ptOnSeg(ROADS[car.segIdx],car.t);
@@ -947,9 +947,9 @@ async function fetchCCTV(){
   try{log('CCTV','Autobahn...');const lr=await fetch('https://verkehr.autobahn.de/o/autobahn/');if(!lr.ok)throw new Error('');
     for(const rd of((await lr.json()).roads||[])){try{const wr=await fetch(`https://verkehr.autobahn.de/o/autobahn/${rd}/services/webcam`);if(!wr.ok)continue;((await wr.json()).webcam||[]).forEach(wc=>{const co=wc.coordinate;if(co?.lat&&co?.long)cams.push({id:wc.identifier||'ab-'+Math.random().toString(36).substr(2,5),name:wc.title||rd,lat:+co.lat,lon:+co.long,img:wc.imageurl||null,src:'AB '+rd});});}catch(e){}}setSS('ab','ok');}catch(e){setSS('ab','err');}
   try{log('CCTV','Digitraffic FI...');
-    const _hdr={'Digitraffic-User':'WorldView/1.0','Accept':'application/json'};
-    let dr=await fetch('https://tie.digitraffic.fi/api/v3/metadata/camera-stations',{headers:_hdr});
-    if(!dr.ok)dr=await fetch('https://tie.digitraffic.fi/api/v1/metadata/camera-stations',{headers:_hdr});
+    // No custom headers — avoid CORS preflight on a simple GET
+    let dr=await fetch('https://tie.digitraffic.fi/api/v3/metadata/camera-stations');
+    if(!dr.ok)dr=await fetch('https://tie.digitraffic.fi/api/v1/metadata/camera-stations');
     if(!dr.ok)throw new Error('HTTP '+dr.status);
     const dd=await dr.json();let dtN=0;
     // v3 returns GeoJSON FeatureCollection; v1 returns {cameraStations:[]}
@@ -968,15 +968,36 @@ async function fetchCCTV(){
       });
     });
     setSS('dtfi','ok');log('CCTV','Digitraffic FI: '+dtN);}catch(e){setSS('dtfi','err');log('CCTV','Digitraffic FI: '+e.message);}
-  try{log('CCTV','BC Open511...');const br=await fetch('https://api.open511.gov.bc.ca/webcams?format=json',{headers:{'Accept':'application/json'}});if(!br.ok)throw new Error('HTTP '+br.status);const bd=await br.json();let dbN=0;(bd.webcams||[]).forEach(wc=>{const c=wc.geography?.coordinates||wc.coordinates;if(!c?.length)return;
-    // Extract numeric camera ID: try /id/{n}/ in URL, then trailing digits in Open511 id field
-    const idM=(wc.url||'').match(/\/id\/(\d+)/)||
-              (wc.id||'').match(/(\d+)$/);
-    const numId=idM?.[1];
-    const img=numId?`https://images.drivebc.ca/bchighwaycam/pub/cameras/${numId}/currentlarge.jpg`
-                   :(wc.image_url||wc.snapshot_url||null);
-    const name=wc.name||wc.title||('BC-'+(numId||wc.id));
-    if(img){cams.push({id:'bc511-'+(wc.id||dbN),name,lat:c[1],lon:c[0],img,src:'DriveBC'});dbN++;}});setSS('drivebc','ok');log('CCTV','BC Open511: '+dbN);}catch(e){setSS('drivebc','err');log('CCTV','BC Open511: '+e.message);}
+  try{
+    log('CCTV','DriveBC...');
+    // Try native DriveBC REST API first (CORS-friendly, used by drivebc.ca website itself)
+    // Fall back to BC Open511 if unavailable
+    let bd=null,dbSrc='DriveBC';
+    try{
+      const br=await fetch('https://www.drivebc.ca/api/v1/webcam/?format=json&limit=1000');
+      if(br.ok){const j=await br.json();bd=j.results||j.webcams||[];}
+    }catch(_){}
+    if(!bd){
+      const br=await fetch('https://api.open511.gov.bc.ca/webcams?format=json');
+      if(!br.ok)throw new Error('HTTP '+br.status);
+      const j=await br.json();bd=j.webcams||[];dbSrc='BC Open511';
+    }
+    let dbN=0;
+    bd.forEach(wc=>{
+      // Coordinates: GeoJSON point field or lat/lon fields
+      const geo=wc.camLocation||wc.geography;
+      const c=geo?.coordinates||(wc.lat&&wc.lon?[wc.lon,wc.lat]:null);
+      if(!c?.length)return;
+      // Image URL: explicit field, or construct from numeric camera ID
+      const idM=(wc.url||'').match(/\/id\/(\d+)/)||(wc.id||'').match(/(\d+)$/);
+      const numId=idM?.[1];
+      const img=wc.imageUrl||wc.image_url||wc.snapshot_url
+               ||(numId?`https://images.drivebc.ca/bchighwaycam/pub/cameras/${numId}/currentlarge.jpg`:null);
+      const name=wc.name||wc.caption||('BC-'+(numId||wc.id));
+      if(img){cams.push({id:'bc-'+(wc.id||dbN),name,lat:c[1],lon:c[0],img,src:dbSrc});dbN++;}
+    });
+    setSS('drivebc','ok');log('CCTV',dbSrc+': '+dbN);
+  }catch(e){setSS('drivebc','err');log('CCTV','DriveBC: '+e.message);}
   prims.camPts.removeAll();
   cams.forEach(c=>{const pt=prims.camPts.add({position:Cesium.Cartesian3.fromDegrees(c.lon,c.lat,100),image:camIcn,width:16,height:16,scaleByDistance:new Cesium.NearFarScalar(1e3,1.2,3e6,.25)});pt._wv={t:'cam',id:c.id};});
   document.getElementById('c-cam').textContent=cams.length;log('CCTV',cams.length+' cams');
@@ -1016,6 +1037,13 @@ function interpAC(){
     }
     a._drPos=[drLon,drLat,altM];
     bb.position=Cesium.Cartesian3.fromDegrees(drLon,drLat,altM);
+    // Trail: append dead-reckoned position every 5 s (not tied to 8s fetch cycle)
+    if(!a._trailTs||now-a._trailTs>=5000){
+      if(!a._trail)a._trail=[];
+      a._trail.push([drLon,drLat,altM]);
+      if(a._trail.length>80)a._trail.shift();
+      a._trailTs=now;
+    }
   }
 }
 
