@@ -260,7 +260,7 @@ const acBBTrack={},milBBTrack={},shipBBTrack={};
 const trailEntities={};  // Entity-based trail map hex→entity (reliable in Cesium 1.125)
 const shipTrailPool=[];  // Pre-allocated PolylineCollection pool (ships)
 const carPool=[];  // Traffic flow car billboard pool
-let osmRoads=[],_osmBbox='',_osmFetchTs=0; // OSM road data for close-up traffic
+let osmRoads=[],osmRoadSpeeds=[],_osmBbox='',_osmFetchTs=0; // OSM road data + speed factors
 let trailLineColl,shipTrailLineColl,satPtCol,_lastPick=0;
 let satTrackIdx=null,satTrackInt=null,orbitPathDS=null,showOrbit=false;
 
@@ -375,29 +375,25 @@ const shipIcn=makeIcon((x,s)=>{const r=s/2-1;x.translate(s/2,s/2);
 const satIcn=makeEmojiIcon('🛰',26,'#ffffaa');
 const camIcn=makeEmojiIcon('📷',22,'#ff6655');
 
-// Car icon — top-down silhouette, 8×14px, nose at top (north), rotated via UNIT_Z
-const carIcn=(()=>{
+// Car icon factory — top-down silhouette 8×14px, nose at top, rotated via UNIT_Z
+function makeCarIcon(col){
   const dpr=Math.min(window.devicePixelRatio||1,2);const W=8,H=14;
   const c=document.createElement('canvas');c.width=W*dpr;c.height=H*dpr;
   const x=c.getContext('2d');x.scale(dpr,dpr);
-  // Helper: rounded-rect path
   function rr(lx,ly,lw,lh,r){x.beginPath();x.moveTo(lx+r,ly);x.lineTo(lx+lw-r,ly);x.arcTo(lx+lw,ly,lx+lw,ly+r,r);x.lineTo(lx+lw,ly+lh-r);x.arcTo(lx+lw,ly+lh,lx+lw-r,ly+lh,r);x.lineTo(lx+r,ly+lh);x.arcTo(lx,ly+lh,lx,ly+lh-r,r);x.lineTo(lx,ly+r);x.arcTo(lx,ly,lx+r,ly,r);x.closePath();}
-  // Body shadow
   x.shadowColor='rgba(0,0,0,0.45)';x.shadowBlur=2;x.shadowOffsetY=1;
-  x.fillStyle='#2196f3';rr(0.5,0.5,W-1,H-1,2);x.fill();
+  x.fillStyle=col;rr(0.5,0.5,W-1,H-1,2);x.fill();
   x.shadowBlur=0;x.shadowOffsetY=0;
-  // Hood taper: slightly darker top strip
   x.fillStyle='rgba(0,0,0,0.15)';x.fillRect(1,0.5,W-2,2.5);
-  // Windshield (front glass, top)
   x.fillStyle='rgba(210,240,255,0.85)';x.fillRect(1.5,1.5,W-3,3);
-  // Roof
-  x.fillStyle='rgba(10,80,160,0.35)';x.fillRect(1.5,4.5,W-3,4.5);
-  // Rear window
+  x.fillStyle='rgba(0,0,0,0.22)';x.fillRect(1.5,4.5,W-3,4.5);
   x.fillStyle='rgba(190,225,255,0.6)';x.fillRect(1.5,H-3.5,W-3,2);
-  // Outline
   x.strokeStyle='rgba(0,0,0,0.5)';x.lineWidth=0.7;rr(0.5,0.5,W-1,H-1,2);x.stroke();
   return c;
-})();
+}
+// Colour palette — used round-robin so traffic looks varied
+const carIcns=['#2196f3','#4caf50','#ff5722','#ffa726','#e91e63','#00bcd4'].map(makeCarIcon);
+const carIcn=carIcns[0]; // kept for any external reference
 
 let _selBB=null; // currently highlighted billboard
 
@@ -884,21 +880,21 @@ function _ptOnSeg(seg,t){
 
 function initTraffic(){
   prims.trafficBB=viewer.scene.primitives.add(new Cesium.BillboardCollection());
-  prims.trafficBB.show=true; // on by default
-  for(let i=0;i<200;i++){
+  prims.trafficBB.show=true;
+  for(let i=0;i<500;i++){
     const segIdx=i%ROADS.length;
     const t=Math.random();
-    const spd=(0.003+Math.random()*0.005)*(Math.random()<0.5?1:-1);
+    const spd=(0.0025+Math.random()*0.004)*(Math.random()<0.5?1:-1);
     const bb=prims.trafficBB.add({
-      position:Cesium.Cartesian3.fromDegrees(ROADS[segIdx][0][0],ROADS[segIdx][0][1],5),
-      image:carIcn,width:8,height:14,rotation:0,
+      position:Cesium.Cartesian3.fromDegrees(ROADS[segIdx][0][0],ROADS[segIdx][0][1],12),
+      image:carIcns[i%carIcns.length],width:8,height:14,rotation:0,
       alignedAxis:Cesium.Cartesian3.UNIT_Z,show:false,
       scaleByDistance:new Cesium.NearFarScalar(300,2.2,8e4,0.5),
       translucencyByDistance:new Cesium.NearFarScalar(1e5,1.0,2e6,0.0)
     });
     carPool.push({segIdx,t,spd,bb});
   }
-  document.getElementById('c-trf').textContent=200;
+  document.getElementById('c-trf').textContent=500;
 }
 
 // Fetch motorway/trunk road geometry from Overpass API for the current camera viewport.
@@ -917,17 +913,24 @@ async function fetchOSMRoads(){
   if(bbox===_osmBbox||Date.now()-_osmFetchTs<25000)return; // debounce
   _osmBbox=bbox;_osmFetchTs=Date.now();
   try{
-    // Query motorways and trunk roads (freeways/national roads) — these match the ROADS[] set
-    const q=`[out:json][timeout:12];(way["highway"~"^(motorway|trunk)$"](${bbox}););out geom;`;
+    // motorway+trunk (freeways) + primary + secondary + link roads for full city coverage
+    const q=`[out:json][timeout:20];(way["highway"~"^(motorway|trunk|primary|secondary|motorway_link|trunk_link|primary_link)$"](${bbox}););out geom tags;`;
     const r=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:'data='+encodeURIComponent(q)});
     if(!r.ok)return;
     const d=await r.json();
-    const segs=(d.elements||[]).filter(e=>e.type==='way'&&e.geometry?.length>=3).map(e=>e.geometry.map(p=>[p.lon,p.lat]));
-    if(segs.length<1)return;
-    osmRoads=segs;
-    // Redistribute cars evenly across new OSM segments
-    carPool.forEach((car,i)=>{car.segIdx=i%osmRoads.length;car.t=Math.random();});
-    log('TRF','OSM roads: '+segs.length+' segments');
+    const ways=(d.elements||[]).filter(e=>e.type==='way'&&e.geometry?.length>=3);
+    if(ways.length<1)return;
+    osmRoads=ways.map(e=>e.geometry.map(p=>[p.lon,p.lat]));
+    // Speed multiplier by road class: motorway fast → secondary slow (simulates traffic flow)
+    osmRoadSpeeds=ways.map(e=>{const t=e.tags?.highway||'primary';return t.startsWith('motorway')?1.5:t.startsWith('trunk')?1.2:t.startsWith('primary')?1.0:0.65;});
+    // Redistribute cars; re-scale each car's speed to match road class
+    carPool.forEach((car,i)=>{
+      car.segIdx=i%osmRoads.length;car.t=Math.random();
+      const mult=osmRoadSpeeds[car.segIdx]||1;
+      const base=0.0025+Math.random()*0.004;
+      car.spd=base*mult*(Math.random()<0.5?1:-1);
+    });
+    log('TRF','OSM roads: '+ways.length+' segs (motorway/trunk/primary/secondary)');
   }catch(e){}
 }
 
@@ -937,7 +940,7 @@ function updateTraffic(){
   // Below 60 km: fetch OSM motorway/trunk geometry for exact road positions
   if(h<6e4)fetchOSMRoads();
   // Reset OSM cache when zoomed back out beyond 150 km
-  if(h>1.5e5&&osmRoads.length){osmRoads=[];_osmBbox='';carPool.forEach((c,i)=>{c.segIdx=i%ROADS.length;c.t=Math.random();});}
+  if(h>1.5e5&&osmRoads.length){osmRoads=[];osmRoadSpeeds=[];_osmBbox='';carPool.forEach((c,i)=>{c.segIdx=i%ROADS.length;c.t=Math.random();});}
   // Choose road source: OSM when available + zoomed in, else built-in ROADS
   const activeRoads=osmRoads.length&&h<6e4?osmRoads:ROADS;
   for(const car of carPool){
@@ -945,7 +948,7 @@ function updateTraffic(){
     const seg=activeRoads[car.segIdx%activeRoads.length];
     if(!seg)continue;
     const[lon,lat,hdg]=_ptOnSeg(seg,car.t);
-    car.bb.position=Cesium.Cartesian3.fromDegrees(lon,lat,5);
+    car.bb.position=Cesium.Cartesian3.fromDegrees(lon,lat,12);
     car.bb.rotation=Cesium.Math.toRadians(-(car.spd<0?(hdg+180)%360:hdg));
     car.bb.show=true;
   }
