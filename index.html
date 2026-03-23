@@ -1122,9 +1122,10 @@ async function fetchBVG(){
     log('bvg','BVG radar...');
     const r=await fetch(`https://v6.bvg.transport.rest/radar?north=${n}&west=${w}&south=${s}&east=${e}&results=500&duration=30&frames=3`);
     if(!r.ok)throw new Error('HTTP '+r.status);
-    const vehicles=await r.json();
+    const data=await r.json();
+    const list=Array.isArray(data)?data:Array.isArray(data.movements)?data.movements:[];
     let ci=0;
-    for(const v of(Array.isArray(vehicles)?vehicles:[])){
+    for(const v of list){
       if(ci>=bvgPool.length)break;
       const loc=v.location;if(!loc?.latitude||!loc?.longitude)continue;
       const prod=v.line?.product||'bus';
@@ -1139,7 +1140,7 @@ async function fetchBVG(){
     }
     for(let i=ci;i<bvgPool.length;i++)bvgPool[i].show=false;
     document.getElementById('c-bvg').textContent=ci;
-    setSS('bvg','ok');log('bvg',ci+' vehicles ('+['suburban','subway','tram','bus'].map(p=>p+':'+vehicles.filter(v=>v.line?.product===p).length).join(' ')+')');
+    setSS('bvg','ok');log('bvg',ci+' vehicles');
   }catch(e){setSS('bvg','err');log('bvg','Error: '+e.message);}
 }
 
