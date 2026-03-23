@@ -265,41 +265,45 @@ let satTrackIdx=null,satTrackInt=null,orbitPathDS=null,showOrbit=false;
 let _dockOpen=false;
 function toggleDock(){_dockOpen=!_dockOpen;document.getElementById('dock-panel').classList.toggle('open',_dockOpen);document.getElementById('dock-toggle').textContent=_dockOpen?'▼':'▲';}
 
-// ── Camera Follow — postRender lookAt keeps object centred; zoom + orbit free ──
-let _followPR=null,_followGetPos=null,_followGetHdg=null;
+// ── Camera Follow — translate camera by object delta; no camera constraints ──
+// Zoom and orbit always work because camera is never put in lookAt/constrained mode.
+// Fly: camera placed directly above object, heading=travel direction, pitch=-80° (overhead).
+// postRender: each frame move camera by the same ECEF delta the object moved → object stays centred.
+let _followPR=null,_followGetPos=null,_followLastC=null;
 function startFollow(getPosFn,getHdgFn){
   stopFollow();
   const initPos=getPosFn();
   if(!initPos){notify('OBJECT NOT FOUND','warn');return;}
-  _followGetPos=getPosFn;_followGetHdg=getHdgFn||null;
-  const dist=Math.max(5e4,Math.min(viewer.camera.positionCartographic.height,8e6));
+  _followGetPos=getPosFn;
+  const[lon,lat,alt]=initPos;
   const hdg=getHdgFn?.()??0;
-  const objPos=Cesium.Cartesian3.fromDegrees(initPos[0],initPos[1],initPos[2]);
-  // Fly overhead: heading aligned to movement direction, steep pitch = top-down view
-  viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(objPos,1000),{
-    offset:new Cesium.HeadingPitchRange(
-      Cesium.Math.toRadians(hdg),   // "up on screen" = direction of travel
-      Cesium.Math.toRadians(-75),   // steep overhead angle (not ego)
-      dist
-    ),
+  const dist=Math.max(5e4,Math.min(viewer.camera.positionCartographic.height,2e6));
+  // Fly to directly above object; heading=direction of travel so "up on screen"=travel direction
+  viewer.camera.flyTo({
+    destination:Cesium.Cartesian3.fromDegrees(lon,lat,(alt||0)+dist),
+    orientation:{heading:Cesium.Math.toRadians(hdg),pitch:Cesium.Math.toRadians(-80),roll:0},
     duration:1.5,
     complete:()=>{
-      if(!_followGetPos)return;  // was stopped during fly
-      // postRender: each frame re-centre camera on object keeping user heading/pitch/range
+      if(!_followGetPos)return;
+      const cur=_followGetPos();
+      _followLastC=Cesium.Cartesian3.fromDegrees(
+        cur?cur[0]:lon, cur?cur[1]:lat, cur?cur[2]:(alt||0));
       _followPR=viewer.scene.postRender.addEventListener(()=>{
         const p=_followGetPos?.();if(!p)return;
-        const pos=Cesium.Cartesian3.fromDegrees(p[0],p[1],p[2]);
-        const range=Cesium.Cartesian3.distance(viewer.camera.position,pos);
-        viewer.camera.lookAt(pos,new Cesium.HeadingPitchRange(
-          viewer.camera.heading,viewer.camera.pitch,range));
+        const newC=Cesium.Cartesian3.fromDegrees(p[0],p[1],p[2]);
+        const delta=Cesium.Cartesian3.subtract(newC,_followLastC,new Cesium.Cartesian3());
+        // Only move camera if object has actually moved (skip float noise)
+        if(Cesium.Cartesian3.magnitudeSquared(delta)<1)return;
+        viewer.camera.position=Cesium.Cartesian3.add(
+          viewer.camera.position,delta,new Cesium.Cartesian3());
+        _followLastC=newC;
       });
     }
   });
 }
 function stopFollow(){
   if(_followPR){_followPR();_followPR=null;}
-  if(viewer)viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
-  _followGetPos=null;_followGetHdg=null;
+  _followGetPos=null;_followLastC=null;
   const fb=document.getElementById('rp-follow');if(fb){fb.classList.remove('active');fb.textContent='⊕ TRACK';}
   const fsb=document.getElementById('sp-follow-btn');if(fsb){fsb.classList.remove('active');fsb.textContent='⊕ TRACK SATELLITE';}
 }
@@ -600,7 +604,7 @@ function renderAC(){
       track[a.hex].rotation=rot;track[a.hex].show=true;track[a.hex]._wv=wv;
     }else{
       // Cold path: new aircraft, create billboard once
-      const bb=(mil?milBB:acBB).add({position:pos,image:mil?acIconR:acIconG,width:mil?28:26,height:mil?28:26,rotation:rot,alignedAxis:Cesium.Cartesian3.ZERO,scaleByDistance:new Cesium.NearFarScalar(1e4,1.1,5e6,.2)});
+      const bb=(mil?milBB:acBB).add({position:pos,image:mil?acIconR:acIconG,width:mil?28:26,height:mil?28:26,rotation:rot,alignedAxis:Cesium.Cartesian3.UNIT_Z,scaleByDistance:new Cesium.NearFarScalar(1e4,1.1,5e6,.2)});
       bb._wv=wv;track[a.hex]=bb;
     }
     // Trail append
@@ -808,7 +812,7 @@ async function fetchShips(){
       const wv={t:'shp',mmsi:p.mmsi||'—',nm:p.name||'',sog:p.sog!=null?(p.sog/10).toFixed(1)+' kn':'—',cog:p.cog!=null?(p.cog/10).toFixed(1)+'°':'—',lat,lon};
       seenShips.add(key);
       if(shipBBTrack[key]){shipBBTrack[key].position=pos;shipBBTrack[key].rotation=rot;shipBBTrack[key].show=true;shipBBTrack[key]._wv=wv;}
-      else{const bb=prims.shipBB.add({position:pos,image:shipIcn,width:22,height:22,rotation:rot,alignedAxis:Cesium.Cartesian3.ZERO,scaleByDistance:new Cesium.NearFarScalar(1e4,1.1,5e6,.18)});bb._wv=wv;shipBBTrack[key]=bb;}
+      else{const bb=prims.shipBB.add({position:pos,image:shipIcn,width:22,height:22,rotation:rot,alignedAxis:Cesium.Cartesian3.UNIT_Z,scaleByDistance:new Cesium.NearFarScalar(1e4,1.1,5e6,.18)});bb._wv=wv;shipBBTrack[key]=bb;}
       // Append trail point
       const bb=shipBBTrack[key];if(!bb._trail)bb._trail=[];bb._trail.push([lon,lat,50]);if(bb._trail.length>8)bb._trail.shift();
       n++;
