@@ -487,9 +487,9 @@ function initGlobe(){
   const _sc=new Cesium.Color(0,0.867,1,0.25);
   for(let i=0;i<40;i++)shipTrailPool.push(shipTrailLineColl.add({positions:[Cesium.Cartesian3.ZERO,Cesium.Cartesian3.fromDegrees(0,1,50)],width:1.2,material:Cesium.Material.fromType('Color',{color:_sc}),show:false}));
 
-  // BVG transit vehicle pool — 600 pre-allocated slots, icons assigned at fetch time
+  // BVG transit vehicle pool — 1000 pre-allocated slots, icons assigned at fetch time
   prims.bvgBB=viewer.scene.primitives.add(new Cesium.BillboardCollection());
-  for(let i=0;i<600;i++){
+  for(let i=0;i<1000;i++){
     const bb=prims.bvgBB.add({position:Cesium.Cartesian3.fromDegrees(13.4,52.5,50),image:BVG_ICONS.bus,width:11,height:11,show:false,scaleByDistance:new Cesium.NearFarScalar(500,2.0,3e5,0.5)});
     bvgPool.push(bb);
   }
@@ -1120,7 +1120,7 @@ async function fetchBVG(){
   const e=Math.min(R(rect.east),15.5).toFixed(4), w=Math.max(R(rect.west),11.0).toFixed(4);
   try{
     log('bvg','BVG radar...');
-    const r=await fetch(`https://v6.bvg.transport.rest/radar?north=${n}&west=${w}&south=${s}&east=${e}&results=500&duration=30&frames=3`);
+    const r=await fetch(`https://v6.bvg.transport.rest/radar?north=${n}&west=${w}&south=${s}&east=${e}&results=1000&duration=30&frames=3`);
     if(!r.ok)throw new Error('HTTP '+r.status);
     const data=await r.json();
     const list=Array.isArray(data)?data:Array.isArray(data.movements)?data.movements:[];
