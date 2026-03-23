@@ -485,9 +485,9 @@ function initGlobe(){
     }else if(d.t==='sat')openSP(d.idx);
     else if(d.t==='shp'){
       const bb=pk.primitive;
-      const getRows=()=>{const wv=bb?._wv;if(!wv)return null;return[['MMSI',wv.mmsi],['NAME',wv.nm||'—'],['SOG',wv.sog],['COG',wv.cog],['POSITION',N(wv.lat)+', '+N(wv.lon)]];};
-      const getPos=()=>{const wv=bb?._wv;return wv?[wv.lon,wv.lat,50]:null;};
-      const getHdg=()=>{const wv=bb?._wv;return wv?.cog?parseFloat(wv.cog):0;};
+      const getRows=()=>{const wv=bb?._wv;if(!wv)return null;const pos=wv._drPos?N(wv._drPos[1])+', '+N(wv._drPos[0]):N(wv.lat)+', '+N(wv.lon);return[['MMSI',wv.mmsi],['NAME',wv.nm||'—'],['TYPE',wv.type||'—'],['FLAG',wv.flag||'—'],['SOG',wv.sog],['COG',wv.cog],['POSITION',pos]];};
+      const getPos=()=>{const wv=bb?._wv;if(!wv)return null;return wv._drPos?[wv._drPos[0],wv._drPos[1],50]:[wv.lon,wv.lat,50];};
+      const getHdg=()=>{const wv=bb?._wv;return wv?._cog??0;};
       showD('VESSEL',getRows()??[],getRows,getPos,getHdg);
     }else if(d.t==='cam'){const cam=cams.find(c=>c.id===d.id);if(cam)showC(cam);}
   },Cesium.ScreenSpaceEventType.LEFT_CLICK);
@@ -779,6 +779,10 @@ function propSats(){
   viewer.scene.requestRender();
 }
 
+// ── AIS lookups: MID (MMSI prefix → country) + AIS ship type codes ──
+const MID={201:'Albania',202:'Andorra',203:'Austria',204:'Portugal',205:'Belgium',206:'Belarus',207:'Bulgaria',208:'Vatican',209:'Cyprus',210:'Cyprus',211:'Germany',212:'Cyprus',213:'Georgia',214:'Moldova',215:'Malta',218:'Germany',219:'Denmark',220:'Denmark',224:'Spain',225:'Spain',226:'France',227:'France',228:'France',229:'Malta',230:'Finland',231:'Faroe Islands',232:'UK',233:'UK',234:'UK',235:'UK',236:'Gibraltar',237:'Greece',238:'Norway',239:'Greece',240:'Greece',241:'Greece',244:'Netherlands',245:'Netherlands',246:'Netherlands',247:'Italy',248:'Malta',249:'Malta',250:'Ireland',251:'Iceland',252:'Liechtenstein',253:'Luxembourg',254:'Monaco',255:'Portugal',257:'Norway',258:'Norway',259:'Norway',261:'Poland',265:'Sweden',266:'Sweden',267:'Sweden',268:'Russia',269:'Russia',272:'Ukraine',273:'Russia',276:'Estonia',277:'Latvia',278:'Lithuania',279:'Russia',303:'USA',305:'Antigua',308:'Bahamas',309:'Bahamas',310:'Bermuda',311:'Bahamas',312:'Belize',314:'Barbados',316:'Canada',319:'Cayman Islands',321:'Cuba',323:'Dom. Republic',325:'El Salvador',327:'Guatemala',330:'Grenada',331:'Greenland',332:'Honduras',334:'Jamaica',336:'Mexico',338:'USA',339:'Panama',351:'Panama',352:'Panama',353:'Panama',354:'Panama',355:'Panama',356:'Panama',357:'Panama',366:'USA',367:'USA',368:'USA',369:'USA',370:'Panama',371:'Panama',372:'Panama',373:'Panama',376:'Brit. Virgin Islands',412:'China',413:'China',414:'China',416:'Taiwan',417:'Sri Lanka',419:'India',422:'Iran',425:'Pakistan',426:'Bahrain',427:'Kuwait',429:'UAE',431:'Japan',432:'Japan',440:'South Korea',441:'South Korea',443:'North Korea',447:'Philippines',451:'Vietnam',470:'UAE',477:'Hong Kong',480:'Indonesia',525:'Indonesia',530:'Malaysia',533:'Malaysia',563:'Singapore',564:'Singapore',565:'Singapore',574:'Vietnam',577:'Australia',578:'Australia',601:'South Africa',605:'Algeria',619:'Côte d\'Ivoire',622:'Egypt',626:'Gabon',627:'Ghana',634:'Kenya',636:'Liberia',637:'Liberia',642:'Libya',647:'Madagascar',654:'Mauritania',655:'Mozambique',656:'Morocco',660:'Nigeria',664:'Sudan',665:'Senegal',666:'Somalia',672:'Tunisia',674:'Tanzania',701:'Argentina',710:'Brazil',720:'Bolivia',725:'Chile',730:'Colombia',735:'Ecuador',750:'Guyana',755:'Paraguay',760:'Peru',770:'Uruguay',775:'Venezuela'};
+function stype(t){if(!t)return'—';if(t>=60&&t<=69)return'PASSENGER';if(t>=70&&t<=79)return'CARGO';if(t>=80&&t<=89)return'TANKER';if(t>=40&&t<=49)return'HIGH-SPEED';if(t===30)return'FISHING';if(t===31||t===32)return'TOWING';if(t===33)return'DREDGER';if(t===35)return'MILITARY';if(t===36)return'SAILING';if(t===37)return'PLEASURE';if(t===51)return'SAR';if(t===52)return'TUG';if(t>=90&&t<=99)return'OTHER';return t>0?'SPECIAL':'—';}
+
 // ── Ships ──
 async function fetchShips(){
   try{log('AIS','Digitraffic...');const r=await fetch('https://meri.digitraffic.fi/api/ais/v1/locations');if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();if(!d.features?.length)throw new Error('Empty');
@@ -793,9 +797,20 @@ async function fetchShips(){
       const hdg=p.heading!=null&&p.heading<360?p.heading:(p.cog!=null?p.cog/10:0);
       const pos=Cesium.Cartesian3.fromDegrees(lon,lat,50);
       const rot=Cesium.Math.toRadians(-hdg);
-      const wv={t:'shp',mmsi:p.mmsi||'—',nm:p.name||'',sog:p.sog!=null?(p.sog/10).toFixed(1)+' kn':'—',cog:p.cog!=null?(p.cog/10).toFixed(1)+'°':'—',lat,lon};
+      const rawSog=p.sog!=null?p.sog/10:0;  // knots
+      const rawCog=p.cog!=null?p.cog/10:0;  // degrees
+      const flag=MID[+String(p.mmsi||'').substring(0,3)]||'—';
+      const type=stype(p.shipType);
+      const wv={t:'shp',mmsi:p.mmsi||'—',nm:p.name||'',type,flag,
+        sog:rawSog.toFixed(1)+' kn',cog:rawCog.toFixed(1)+'°',lat,lon,
+        _sog:rawSog,_cog:rawCog,_lat:lat,_lon:lon,_ts:Date.now()};
       seenShips.add(key);
-      if(shipBBTrack[key]){shipBBTrack[key].position=pos;shipBBTrack[key].rotation=rot;shipBBTrack[key].show=true;shipBBTrack[key]._wv=wv;}
+      if(shipBBTrack[key]){
+        const old=shipBBTrack[key]._wv;
+        // If ship has visually moved, blend from old dead-reckoned position to new API fix
+        if(old?._drPos&&(Math.abs(old._drPos[0]-lon)>5e-4||Math.abs(old._drPos[1]-lat)>5e-4)){
+          wv._blendFrom=old._drPos;wv._blendStart=Date.now();}
+        shipBBTrack[key].position=pos;shipBBTrack[key].rotation=rot;shipBBTrack[key].show=true;shipBBTrack[key]._wv=wv;}
       else{const bb=prims.shipBB.add({position:pos,image:shipIcn,width:22,height:22,rotation:rot,alignedAxis:Cesium.Cartesian3.UNIT_Z,scaleByDistance:new Cesium.NearFarScalar(1e4,1.1,5e6,.18)});bb._wv=wv;shipBBTrack[key]=bb;}
       // Append trail point
       const bb=shipBBTrack[key];if(!bb._trail)bb._trail=[];bb._trail.push([lon,lat,50]);if(bb._trail.length>8)bb._trail.shift();
@@ -834,7 +849,7 @@ async function fetchCCTV(){
 }
 
 // ═══ ANIMATION ═══
-let lastSatProp=0,_lastInterp=0,_lastTrailUpdate=0;
+let lastSatProp=0,_lastInterp=0,_lastShipInterp=0,_lastTrailUpdate=0;
 
 // Dead-reckoning at 30fps: smoothly advances aircraft positions using heading + speed.
 // Uses smoothstep blend to correct from predicted→actual when new API data arrives.
@@ -870,6 +885,37 @@ function interpAC(){
   }
 }
 
+// Ship dead-reckoning: same great-circle approach as interpAC but at ~5fps (ships are slow).
+// Advances billboard position between 60s AIS refreshes; smoothstep-blends on new API fix.
+function interpShip(){
+  const now=Date.now();
+  for(const bb of Object.values(shipBBTrack)){
+    if(!bb.show||!bb._wv)continue;
+    const w=bb._wv;
+    if(!w._ts||!w._sog||w._sog<0.3)continue;  // skip stationary
+    const dt=(now-w._ts)/1000;
+    if(dt>90||dt<0)continue;  // only within 90s of last API fix
+    const spd=(w._sog*1.852)/3600;  // knots → m/s
+    const dist=spd*dt;
+    const b=w._cog*D2R;
+    const lat1=w._lat*D2R,lon1=w._lon*D2R;
+    const ad=dist/ER;
+    const lat2=Math.asin(Math.sin(lat1)*Math.cos(ad)+Math.cos(lat1)*Math.sin(ad)*Math.cos(b));
+    const lon2=lon1+Math.atan2(Math.sin(b)*Math.sin(ad)*Math.cos(lat1),Math.cos(ad)-Math.sin(lat1)*Math.sin(lat2));
+    if(isNaN(lat2)||isNaN(lon2))continue;
+    let drLon=lon2*R2D,drLat=lat2*R2D;
+    if(w._blendFrom&&w._blendStart){
+      const bt=Math.min(1,(now-w._blendStart)/5000);  // 5s blend window
+      const ease=bt*bt*(3-2*bt);
+      drLon=w._blendFrom[0]*(1-ease)+drLon*ease;
+      drLat=w._blendFrom[1]*(1-ease)+drLat*ease;
+      if(bt>=1){w._blendFrom=null;w._blendStart=null;}
+    }
+    w._drPos=[drLon,drLat];
+    bb.position=Cesium.Cartesian3.fromDegrees(drLon,drLat,50);
+  }
+}
+
 function startAnim(){
   (function frame(ts){
     const _now=new Date();
@@ -879,6 +925,8 @@ function startAnim(){
     if(ts-lastSatProp>100){propSats();lastSatProp=ts;}
     // Aircraft dead-reckoning: ~30fps (33ms) for smooth visual movement
     if(ts-_lastInterp>33){interpAC();_lastInterp=ts;}
+    // Ship dead-reckoning: ~5fps (200ms) — ships are slow, no need for 30fps
+    if(ts-_lastShipInterp>200){interpShip();_lastShipInterp=ts;}
     // Trail updates: every 3s (cheaper, runs less often)
     if(ts-_lastTrailUpdate>3000){updateTrails();_lastTrailUpdate=ts;}
     requestAnimationFrame(frame);
