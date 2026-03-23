@@ -260,8 +260,7 @@ const acBBTrack={},milBBTrack={},shipBBTrack={};
 const trailPool=[];  // Pre-allocated PolylineCollection pool (aircraft)
 const shipTrailPool=[];  // Pre-allocated PolylineCollection pool (ships)
 const carPool=[];  // Traffic flow car billboard pool
-const projPool=[];  // Forward projection polyline pool (aircraft)
-let trailLineColl,projLineColl,shipTrailLineColl,satPtCol,_lastPick=0;
+let trailLineColl,shipTrailLineColl,satPtCol,_lastPick=0;
 let satTrackIdx=null,satTrackInt=null,orbitPathDS=null,showOrbit=false;
 
 let _dockOpen=false;
@@ -333,7 +332,6 @@ function tgl(n){layers[n]=layers[n]?0:1;const el=document.querySelector(`.lc[dat
   if(n==='satellites'&&orbitPathDS)orbitPathDS.show=sh;
   if(n==='zones')['nfz','fir','gps_mod','gps_hi','gps_ext'].forEach(k=>{if(prims[k])prims[k].show=sh;});
   if(n==='aircraft'&&trailLineColl)trailLineColl.show=sh;
-  if(n==='aircraft'&&projLineColl)projLineColl.show=sh;
   if(n==='ships'&&shipTrailLineColl)shipTrailLineColl.show=sh;
   if(n==='traffic'&&prims.trafficBB){prims.trafficBB.show=sh;if(!sh)carPool.forEach(c=>{try{c.bb.show=false;}catch(e){}});}
   if(viewer)viewer.scene.requestRender();
@@ -450,10 +448,6 @@ function initGlobe(){
   trailLineColl=viewer.scene.primitives.add(new Cesium.PolylineCollection());
   const _tc=new Cesium.Color(0,1,0.533,0.65); // green, more opaque
   for(let i=0;i<300;i++)trailPool.push(trailLineColl.add({positions:[Cesium.Cartesian3.ZERO,Cesium.Cartesian3.fromDegrees(0,1,100)],width:2,material:Cesium.Material.fromType('Color',{color:_tc}),show:false}));
-  // Forward projection pool — faint amber, 300 slots (dashed future path)
-  projLineColl=viewer.scene.primitives.add(new Cesium.PolylineCollection());
-  const _pc=new Cesium.Color(1,0.9,0.3,0.28);
-  for(let i=0;i<300;i++)projPool.push(projLineColl.add({positions:[Cesium.Cartesian3.ZERO,Cesium.Cartesian3.fromDegrees(0,1,100)],width:1.2,material:Cesium.Material.fromType('PolylineDash',{color:_pc,dashLength:12,dashPattern:255}),show:false}));
   // Ship trail pool — cyan, 40 slots
   shipTrailLineColl=viewer.scene.primitives.add(new Cesium.PolylineCollection());
   const _sc=new Cesium.Color(0,0.867,1,0.25);
@@ -553,9 +547,24 @@ const AC_REGS=[
   {lat:19,lon:-99},{lat:18,lon:-66}
 ];
 
+// Returns only AC_REGS regions that are within the current camera viewport.
+// Falls back to all regions when camera is far out (global view) or viewport unknown.
+function visibleRegions(){
+  if(!viewer)return AC_REGS;
+  const h=viewer.camera.positionCartographic.height;
+  if(h>5e6)return AC_REGS; // >5000 km = global view, fetch everything
+  const rect=viewer.camera.computeViewRectangle();
+  if(!rect)return AC_REGS;
+  const buf=0.35; // ~20° buffer in radians around viewport
+  const w=rect.west-buf,e=rect.east+buf,s=rect.south-buf,n=rect.north+buf;
+  const vis=AC_REGS.filter(r=>{const la=r.lat*D2R,lo=r.lon*D2R;return la>=s&&la<=n&&lo>=w&&lo<=e;});
+  return vis.length?vis:AC_REGS;
+}
+
 async function fetchAC(){
+  if(!layers.aircraft&&!layers.military)return; // skip when both layers off
   try{
-    const regs=AC_REGS;
+    const regs=visibleRegions();
     const [rr,mr]=await Promise.all([
       Promise.all(regs.map(async r=>{try{const resp=await fetch(`https://api.airplanes.live/v2/point/${r.lat}/${r.lon}/250`);return resp.ok?(await resp.json()).ac||[]:[];}catch(e){return[];}})),
       (async()=>{try{const r=await fetch('https://api.airplanes.live/v2/mil_a/NONE');return r.ok?(await r.json()).ac||[]:[];}catch(e){return[];}})()
@@ -628,7 +637,7 @@ function renderAC(){
 }
 
 function updateTrails(){
-  // Historical trails — bright green
+  if(!layers.aircraft)return; // skip entirely when aircraft layer is off
   trailPool.forEach(p=>p.show=false);
   let tc=0;
   for(const a of Object.values(acCache)){
@@ -636,24 +645,6 @@ function updateTrails(){
     const pts=a._trail.map(p=>Cesium.Cartesian3.fromDegrees(p[0],p[1],p[2]));
     if(a._drPos)pts.push(Cesium.Cartesian3.fromDegrees(a._drPos[0],a._drPos[1],a._drPos[2]));
     trailPool[tc].positions=pts;trailPool[tc].show=true;tc++;
-  }
-  // Forward projections — dashed amber line (30 min ahead, 6 × 5-min steps)
-  projPool.forEach(p=>p.show=false);
-  let pc=0;
-  for(const a of Object.values(acCache)){
-    if(!a.gs||!a.track||!a._drPos||a.gs<50||pc>=300)continue;
-    const spd=a.gs*1.852/3600; // km/s
-    const b=a.track*D2R;
-    const [slon,slat,salt]=a._drPos;
-    const lat1=slat*D2R,lon1=slon*D2R;
-    const projPts=[Cesium.Cartesian3.fromDegrees(slon,slat,salt)];
-    for(let t=300;t<=1800;t+=300){ // every 5 min up to 30 min
-      const ad=spd*t/ER;
-      const lat2=Math.asin(Math.sin(lat1)*Math.cos(ad)+Math.cos(lat1)*Math.sin(ad)*Math.cos(b));
-      const lon2=lon1+Math.atan2(Math.sin(b)*Math.sin(ad)*Math.cos(lat1),Math.cos(ad)-Math.sin(lat1)*Math.sin(lat2));
-      projPts.push(Cesium.Cartesian3.fromDegrees(lon2*R2D,lat2*R2D,salt));
-    }
-    projPool[pc].positions=projPts;projPool[pc].show=true;pc++;
   }
   viewer.scene.requestRender();
 }
@@ -879,9 +870,11 @@ function initTraffic(){
     const t=Math.random();
     const spd=(0.003+Math.random()*0.005)*(Math.random()<0.5?1:-1);
     const bb=prims.trafficBB.add({
-      position:Cesium.Cartesian3.ZERO,image:carIcn,width:10,height:16,rotation:0,
+      position:Cesium.Cartesian3.fromDegrees(ROADS[segIdx][0][0],ROADS[segIdx][0][1],5),
+      image:carIcn,width:10,height:16,rotation:0,
       alignedAxis:Cesium.Cartesian3.UNIT_Z,show:false,
-      scaleByDistance:new Cesium.NearFarScalar(500,2.5,5e5,0.35)
+      scaleByDistance:new Cesium.NearFarScalar(500,3.5,5e5,0.8),
+      translucencyByDistance:new Cesium.NearFarScalar(1e5,1.0,2e6,0.0)
     });
     carPool.push({segIdx,t,spd,bb});
   }
@@ -890,16 +883,12 @@ function initTraffic(){
 
 function updateTraffic(){
   if(!layers.traffic||!prims.trafficBB)return;
-  const h=viewer.camera.positionCartographic.height;
-  const show=h<5e5; // render below 500 km altitude
+  // translucencyByDistance handles visibility fade — just update all positions
   for(const car of carPool){
-    if(!show){car.bb.show=false;continue;}
-    car.t+=car.spd;
-    car.t=((car.t%1)+1)%1;
+    car.t+=car.spd;car.t=((car.t%1)+1)%1;
     const[lon,lat,hdg]=_ptOnSeg(ROADS[car.segIdx],car.t);
-    const finalHdg=car.spd<0?(hdg+180)%360:hdg;
     car.bb.position=Cesium.Cartesian3.fromDegrees(lon,lat,5);
-    car.bb.rotation=Cesium.Math.toRadians(-finalHdg);
+    car.bb.rotation=Cesium.Math.toRadians(-(car.spd<0?(hdg+180)%360:hdg));
     car.bb.show=true;
   }
 }
@@ -910,6 +899,7 @@ function stype(t){if(!t)return'—';if(t>=60&&t<=69)return'PASSENGER';if(t>=70&&
 
 // ── Ships ──
 async function fetchShips(){
+  if(!layers.ships)return;
   try{log('AIS','Digitraffic...');const r=await fetch('https://meri.digitraffic.fi/api/ais/v1/locations');if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();if(!d.features?.length)throw new Error('Empty');
     // Filter valid + sort by speed (moving vessels first), cap at 3000
     const valid=d.features.filter(f=>f.geometry?.coordinates&&f.geometry.coordinates[0]!==0)
@@ -951,6 +941,7 @@ async function fetchShips(){
 
 // ── CCTV ──
 async function fetchCCTV(){
+  if(!layers.cctv)return;
   cams.length=0;
   try{log('CCTV','TfL...');const r=await fetch('https://api.tfl.gov.uk/Place/Type/JamCam');if(!r.ok)throw new Error('');(await r.json()).forEach(c=>{const im=(c.additionalProperties||[]).find(p=>p.key==='imageUrl');const vid=(c.additionalProperties||[]).find(p=>p.key==='videoUrl');if(c.lat&&c.lon)cams.push({id:c.id,name:c.commonName||c.id,lat:c.lat,lon:c.lon,img:im?im.value:null,video:vid?vid.value:null,src:'TfL'});});setSS('tfl','ok');log('CCTV','TfL: '+cams.length);}catch(e){setSS('tfl','err');}
   try{log('CCTV','Autobahn...');const lr=await fetch('https://verkehr.autobahn.de/o/autobahn/');if(!lr.ok)throw new Error('');
@@ -978,11 +969,13 @@ async function fetchCCTV(){
     });
     setSS('dtfi','ok');log('CCTV','Digitraffic FI: '+dtN);}catch(e){setSS('dtfi','err');log('CCTV','Digitraffic FI: '+e.message);}
   try{log('CCTV','BC Open511...');const br=await fetch('https://api.open511.gov.bc.ca/webcams?format=json',{headers:{'Accept':'application/json'}});if(!br.ok)throw new Error('HTTP '+br.status);const bd=await br.json();let dbN=0;(bd.webcams||[]).forEach(wc=>{const c=wc.geography?.coordinates||wc.coordinates;if(!c?.length)return;
-    // wc.url is the DriveBC page URL (e.g. .../id/515/view.html); extract numeric ID for image
-    const idM=(wc.url||'').match(/\/id\/(\d+)/);
-    const img=idM?`https://images.drivebc.ca/bchighwaycam/pub/cameras/${idM[1]}/currentlarge.jpg`
-                  :(wc.image_url||wc.snapshot_url||null);
-    const name=wc.name||wc.title||('BC-'+(idM?.[1]||wc.id));
+    // Extract numeric camera ID: try /id/{n}/ in URL, then trailing digits in Open511 id field
+    const idM=(wc.url||'').match(/\/id\/(\d+)/)||
+              (wc.id||'').match(/(\d+)$/);
+    const numId=idM?.[1];
+    const img=numId?`https://images.drivebc.ca/bchighwaycam/pub/cameras/${numId}/currentlarge.jpg`
+                   :(wc.image_url||wc.snapshot_url||null);
+    const name=wc.name||wc.title||('BC-'+(numId||wc.id));
     if(img){cams.push({id:'bc511-'+(wc.id||dbN),name,lat:c[1],lon:c[0],img,src:'DriveBC'});dbN++;}});setSS('drivebc','ok');log('CCTV','BC Open511: '+dbN);}catch(e){setSS('drivebc','err');log('CCTV','BC Open511: '+e.message);}
   prims.camPts.removeAll();
   cams.forEach(c=>{const pt=prims.camPts.add({position:Cesium.Cartesian3.fromDegrees(c.lon,c.lat,100),image:camIcn,width:16,height:16,scaleByDistance:new Cesium.NearFarScalar(1e3,1.2,3e6,.25)});pt._wv={t:'cam',id:c.id};});
