@@ -110,7 +110,7 @@ body.mode-flir::after{content:'';position:fixed;inset:0;z-index:9;background:rad
         <div class="sr" id="s-tfl"><span class="sd ld"></span>TfL JamCams<span class="sts" id="t-tfl">—</span></div>
         <div class="sr" id="s-ab"><span class="sd ld"></span>Autobahn GmbH<span class="sts" id="t-ab">—</span></div>
         <div class="sr" id="s-dtfi"><span class="sd ld"></span>Digitraffic FI Cam<span class="sts" id="t-dtfi">—</span></div>
-        <div class="sr" id="s-drivebc"><span class="sd ld"></span>DriveBC CA<span class="sts" id="t-drivebc">—</span></div>
+        <div class="sr" id="s-drivebc"><span class="sd ld"></span>BC Open511<span class="sts" id="t-drivebc">—</span></div>
       </div>
     </div>
     <div id="dock-bar">
@@ -147,13 +147,13 @@ function log(s,m){const ts=new Date().toISOString().substr(11,8);const el=docume
 function notify(m,t=''){const el=document.createElement('div');el.className=`nf ${t}`;el.textContent=m;document.getElementById('notifs').appendChild(el);setTimeout(()=>el.remove(),4200);}
 function setSS(id,st){const r=document.getElementById('s-'+id);if(!r)return;r.querySelector('.sd').className=`sd ${st==='ok'?'ok':st==='err'?'err':'ld'}`;const ts=document.getElementById('t-'+id);if(st==='ok')ts.textContent=new Date().toISOString().substr(11,8);else if(st==='err')ts.textContent='ERR';}
 function N(v){return v!=null?Number(v).toFixed(4):'—';}
-function setMode(m){document.body.className=`mode-${m}`;document.querySelectorAll('.modes button').forEach(b=>b.classList.remove('active'));document.getElementById(`btn-${m}`).classList.add('active');notify('MODE: '+m.toUpperCase());}
+function setMode(m){document.body.className=`mode-${m}`;document.querySelectorAll('.dock-modes button').forEach(b=>b.classList.remove('active'));document.getElementById(`btn-${m}`).classList.add('active');notify('MODE: '+m.toUpperCase());}
 function showD(t,rows){document.getElementById('rp-t').textContent=t;document.getElementById('rp-c').innerHTML=rows.map(([l,v])=>`<div class="dr"><span class="dl">${l}</span><span class="dv">${v}</span></div>`).join('');document.getElementById('rp').classList.add('vis');}
 function closeD(){document.getElementById('rp').classList.remove('vis');}
 let cctvT=null;
 function showC(cam){if(cctvT)clearInterval(cctvT);document.getElementById('cp-t').textContent=cam.name||'CCTV';const b=document.getElementById('cp-b');
   if(cam.video){b.innerHTML=`<video src="${cam.video}" autoplay muted loop playsinline style="max-width:560px;max-height:420px" onerror="this.outerHTML='<div class=\\'cpe\\'>VIDEO UNAVAILABLE</div>'"></video>`;
-  }else if(cam.img){b.innerHTML=`<img src="${cam.img}" onerror="this.outerHTML='<div class=\\'cpe\\'>FEED UNAVAILABLE</div>'" />`;cctvT=setInterval(()=>{const i=b.querySelector('img');if(i)i.src=cam.img+(cam.img.includes('?')?'&':'?')+'t='+Date.now();},30000);
+  }else if(cam.img){const ts=cam.img+(cam.img.includes('?')?'&':'?')+'t='+Date.now();b.innerHTML=`<img src="${ts}" onerror="this.outerHTML='<div class=\\'cpe\\'>FEED UNAVAILABLE</div>'" />`;cctvT=setInterval(()=>{const i=b.querySelector('img');if(i)i.src=cam.img+(cam.img.includes('?')?'&':'?')+'t='+Date.now();},20000);
   }else b.innerHTML='<div class="cpe">NO FEED URL</div>';
   document.getElementById('cp-m').textContent=`${cam.src||'—'} | ${cam.lat?.toFixed(4)}, ${cam.lon?.toFixed(4)}`;document.getElementById('cp').classList.add('vis');}
 function closeC(){document.getElementById('cp').classList.remove('vis');if(cctvT){clearInterval(cctvT);cctvT=null;}}
@@ -224,7 +224,7 @@ function initGlobe(){
     selectionIndicator:false,creditContainer:document.createElement('div'),
     skyBox:new Cesium.SkyBox({sources:{positiveX:Cesium.buildModuleUrl('Assets/Textures/SkyBox/tycho2t3_80_px.jpg'),negativeX:Cesium.buildModuleUrl('Assets/Textures/SkyBox/tycho2t3_80_mx.jpg'),positiveY:Cesium.buildModuleUrl('Assets/Textures/SkyBox/tycho2t3_80_py.jpg'),negativeY:Cesium.buildModuleUrl('Assets/Textures/SkyBox/tycho2t3_80_my.jpg'),positiveZ:Cesium.buildModuleUrl('Assets/Textures/SkyBox/tycho2t3_80_pz.jpg'),negativeZ:Cesium.buildModuleUrl('Assets/Textures/SkyBox/tycho2t3_80_mz.jpg')}}),
     skyAtmosphere:new Cesium.SkyAtmosphere(),scene3DOnly:true,msaaSamples:2,
-    requestRenderMode:true,maximumRenderTimeChange:Infinity
+    requestRenderMode:false
   });
   viewer.resolutionScale=Math.min(window.devicePixelRatio||1,2);
   viewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',maximumLevel:19}));
@@ -318,8 +318,8 @@ function initGlobe(){
 // ═══ DATA FEEDS ═══
 function startFeeds(){fetchAC();fetchSats();fetchShips();fetchCCTV();startAnim();
   setInterval(fetchAC,8000);setInterval(fetchShips,60000);setInterval(fetchCCTV,180000);setInterval(fetchSats,3600000);
-  setInterval(()=>{updateTrails();updateShipTrails();viewer.scene.requestRender();},15000);
-  setTimeout(fetchOpenSky,5000);setInterval(fetchOpenSky,30000);
+  setInterval(()=>{updateShipTrails();},15000);
+  setTimeout(fetchOpenSky,8000);setInterval(fetchOpenSky,120000); // 2min — respect rate limit
   log('SYS','Feeds: AC 8s (51 regions) + OpenSky 30s');}
 
 // ── Aircraft: All regions every 8s (no batching — airplanes.live has no rate limit) ──
@@ -354,7 +354,20 @@ async function fetchAC(){
       (async()=>{try{const r=await fetch('https://api.airplanes.live/v2/mil_a/NONE');return r.ok?(await r.json()).ac||[]:[];}catch(e){return[];}})()
     ]);
     const now=Date.now();
-    rr.flat().concat(mr).forEach(a=>{if(a.hex&&a.lat!=null&&a.lon!=null){const ex=acCache[a.hex];acCache[a.hex]={...a,_ts:now,_trail:ex?._trail||[]};}});
+    rr.flat().concat(mr).forEach(a=>{
+      if(a.hex&&a.lat!=null&&a.lon!=null){
+        const ex=acCache[a.hex];
+        const entry={...a,_ts:now,_trail:ex?._trail||[],_drPos:ex?._drPos};
+        // If aircraft already has a dead-reckoned position, set up a smooth blend
+        // from that position to wherever the new dead-reckoning will take it
+        if(ex?._drPos){
+          const dlat=a.lat-ex._drPos[1],dlon=a.lon-ex._drPos[0];
+          const dist=Math.sqrt(dlat*dlat+dlon*dlon)*111;
+          if(dist>0.05&&dist<80){entry._blendFrom=[...ex._drPos];entry._blendStart=now;}
+        }
+        acCache[a.hex]=entry;
+      }
+    });
     for(const k in acCache)if(now-acCache[k]._ts>90000)delete acCache[k];
     // Cap cache to prevent unbounded growth (OpenSky can add thousands of extra entries)
     const ck=Object.keys(acCache);
@@ -405,7 +418,6 @@ function renderAC(){
   for(const h in acBBTrack)if(!(h in seen)||seen[h]===1)acBBTrack[h].show=false;
   for(const h in milBBTrack)if(!(h in seen)||seen[h]===0)milBBTrack[h].show=false;
   document.getElementById('c-ac').textContent=civN;document.getElementById('c-mil').textContent=milN;
-  updateTrails();
 }
 
 function updateTrails(){
@@ -433,11 +445,12 @@ function updateShipTrails(){
   viewer.scene.requestRender();
 }
 
-// ── OpenSky: Global supplementary source (all aircraft, 30s interval) ──
+// ── OpenSky: Global supplementary source (120s interval, rate limit aware) ──
 async function fetchOpenSky(){
   try{
     log('OPENSKY','Fetching global states...');
     const r=await fetch('https://opensky-network.org/api/states/all');
+    if(r.status===429){log('OPENSKY','Rate limited — skip');return;} // back off silently
     if(!r.ok)throw new Error('HTTP '+r.status);
     const d=await r.json();
     if(!d.states?.length)throw new Error('Empty');
@@ -620,25 +633,39 @@ async function fetchCCTV(){
   try{log('CCTV','TfL...');const r=await fetch('https://api.tfl.gov.uk/Place/Type/JamCam');if(!r.ok)throw new Error('');(await r.json()).forEach(c=>{const im=(c.additionalProperties||[]).find(p=>p.key==='imageUrl');const vid=(c.additionalProperties||[]).find(p=>p.key==='videoUrl');if(c.lat&&c.lon)cams.push({id:c.id,name:c.commonName||c.id,lat:c.lat,lon:c.lon,img:im?im.value:null,video:vid?vid.value:null,src:'TfL'});});setSS('tfl','ok');log('CCTV','TfL: '+cams.length);}catch(e){setSS('tfl','err');}
   try{log('CCTV','Autobahn...');const lr=await fetch('https://verkehr.autobahn.de/o/autobahn/');if(!lr.ok)throw new Error('');
     for(const rd of((await lr.json()).roads||[])){try{const wr=await fetch(`https://verkehr.autobahn.de/o/autobahn/${rd}/services/webcam`);if(!wr.ok)continue;((await wr.json()).webcam||[]).forEach(wc=>{const co=wc.coordinate;if(co?.lat&&co?.long)cams.push({id:wc.identifier||'ab-'+Math.random().toString(36).substr(2,5),name:wc.title||rd,lat:+co.lat,lon:+co.long,img:wc.imageurl||null,src:'AB '+rd});});}catch(e){}}setSS('ab','ok');}catch(e){setSS('ab','err');}
-  try{log('CCTV','Digitraffic FI...');const dr=await fetch('https://tie.digitraffic.fi/api/v3/metadata/camera-stations',{headers:{'Digitraffic-User':'WorldView/1.0'}});if(!dr.ok)throw new Error('HTTP '+dr.status);const dd=await dr.json();let dtN=0;(dd.cameraStations||[]).forEach(cs=>{const lat=cs.wgs84Lat??cs.latitude??cs.coordinates?.y,lon=cs.wgs84Long??cs.longitude??cs.coordinates?.x;if(!lat||!lon||Math.abs(lat)<1||Math.abs(lon)<1)return;(cs.cameraPresets||[]).forEach(cp=>{const img=cp.imageUrl||cp.stillImageUrl;if(img){cams.push({id:'dtfi-'+cp.id,name:(cs.names?.en||cs.names?.fi||cs.name||cp.id),lat:+lat,lon:+lon,img,src:'Digitraffic FI'});dtN++;}});});setSS('dtfi','ok');log('CCTV','Digitraffic FI: '+dtN);}catch(e){setSS('dtfi','err');log('CCTV','Digitraffic FI: '+e.message);}
-  try{log('CCTV','DriveBC...');const br=await fetch('https://www.drivebc.ca/api/v1/webcam/?format=json&limit=500');if(!br.ok)throw new Error('HTTP '+br.status);const bd=await br.json();let dbN=0;(bd.results||[]).forEach(wc=>{const coords=wc.location?.coordinates;const img=wc.image_url||wc.still_image_url||(wc.images?.[0]?.url)||(wc.images?.[0]?.src);const name=wc.name||wc.highway_description||wc.highway||('BC-'+wc.id);if(coords?.length>=2&&img){cams.push({id:'dbc-'+wc.id,name,lat:coords[1],lon:coords[0],img,src:'DriveBC CA'});dbN++;}});setSS('drivebc','ok');log('CCTV','DriveBC: '+dbN);}catch(e){setSS('drivebc','err');log('CCTV','DriveBC: '+e.message);}
+  try{log('CCTV','Digitraffic FI...');
+    const _hdr={'Digitraffic-User':'WorldView/1.0','Accept':'application/json'};
+    let dr=await fetch('https://tie.digitraffic.fi/api/v3/metadata/camera-stations',{headers:_hdr});
+    if(!dr.ok)dr=await fetch('https://tie.digitraffic.fi/api/v1/metadata/camera-stations',{headers:_hdr});
+    if(!dr.ok)throw new Error('HTTP '+dr.status);
+    const dd=await dr.json();let dtN=0;
+    (dd.cameraStations||[]).forEach(cs=>{
+      const lat=cs.wgs84Lat??cs.latitude??cs.coordinates?.y,lon=cs.wgs84Long??cs.longitude??cs.coordinates?.x;
+      if(!lat||!lon||Math.abs(+lat)<1||Math.abs(+lon)<1)return;
+      (cs.cameraPresets||[]).forEach(cp=>{const img=cp.imageUrl||cp.stillImageUrl;if(img){cams.push({id:'dtfi-'+cp.id,name:(cs.names?.en||cs.names?.fi||cs.name||cp.presentationName||cp.id),lat:+lat,lon:+lon,img,src:'Digitraffic FI'});dtN++;}});
+    });
+    setSS('dtfi','ok');log('CCTV','Digitraffic FI: '+dtN);}catch(e){setSS('dtfi','err');log('CCTV','Digitraffic FI: '+e.message);}
+  try{log('CCTV','BC Open511...');const br=await fetch('https://api.open511.gov.bc.ca/webcams?format=json',{headers:{'Accept':'application/json'}});if(!br.ok)throw new Error('HTTP '+br.status);const bd=await br.json();let dbN=0;(bd.webcams||[]).forEach(wc=>{const c=wc.geography?.coordinates||wc.coordinates;const img=wc.url||wc.image_url||wc.snapshot_url;const name=wc.name||wc.title||('BC-'+wc.id);if(c?.length>=2&&img){cams.push({id:'bc511-'+(wc.id||dbN),name,lat:c[1],lon:c[0],img,src:'BC Open511'});dbN++;}});setSS('drivebc','ok');log('CCTV','BC Open511: '+dbN);}catch(e){setSS('drivebc','err');log('CCTV','BC Open511: '+e.message);}
   prims.camPts.removeAll();
   cams.forEach(c=>{const pt=prims.camPts.add({position:Cesium.Cartesian3.fromDegrees(c.lon,c.lat,100),pixelSize:5,color:Cesium.Color.fromCssColorString('#ff3344')});pt._wv={t:'cam',id:c.id};});
   document.getElementById('c-cam').textContent=cams.length;log('CCTV',cams.length+' cams');
 }
 
 // ═══ ANIMATION ═══
-let lastSatProp=0,_lastInterp=0;
-// Dead-reckoning: interpolate aircraft positions between API updates using heading + ground speed
+let lastSatProp=0,_lastInterp=0,_lastTrailUpdate=0;
+
+// Dead-reckoning at 30fps: smoothly advances aircraft positions using heading + speed.
+// Uses smoothstep blend to correct from predicted→actual when new API data arrives.
 function interpAC(){
   const now=Date.now();
   for(const a of Object.values(acCache)){
-    if(!a.lat||!a.lon||!a.gs||a.gs<10||!a.track)continue;
+    if(!a.lat||!a.lon||!a.gs||a.gs<8||!a.track)continue;
     const bb=acBBTrack[a.hex]||milBBTrack[a.hex];
     if(!bb||!bb.show)continue;
     const dt=(now-a._ts)/1000;
-    if(dt>25||dt<0.5)continue;
-    const spd=(a.gs*1.852)/3600; // km/s
+    if(dt>30||dt<0)continue;
+    // Dead-reckoning: great-circle extrapolation from last API fix
+    const spd=(a.gs*1.852)/3600;
     const dist=spd*dt;
     const b=a.track*D2R;
     const lat1=a.lat*D2R,lon1=a.lon*D2R;
@@ -647,18 +674,29 @@ function interpAC(){
     const lon2=lon1+Math.atan2(Math.sin(b)*Math.sin(ad)*Math.cos(lat1),Math.cos(ad)-Math.sin(lat1)*Math.sin(lat2));
     if(isNaN(lat2)||isNaN(lon2))continue;
     const altM=(a.alt_baro==='ground'?0:(a.alt_baro||0)*0.3048)||100;
-    const iLon=lon2*R2D,iLat=lat2*R2D;
-    bb.position=Cesium.Cartesian3.fromDegrees(iLon,iLat,altM);
-    a._drPos=[iLon,iLat,altM]; // store for trail tip extension
+    let drLon=lon2*R2D,drLat=lat2*R2D;
+    // Smooth correction blend: ease from previous visual position → new dead-reckoned position
+    if(a._blendFrom&&a._blendStart){
+      const bt=Math.min(1,(now-a._blendStart)/3500);
+      const ease=bt*bt*(3-2*bt); // smoothstep
+      drLon=a._blendFrom[0]*(1-ease)+drLon*ease;
+      drLat=a._blendFrom[1]*(1-ease)+drLat*ease;
+      if(bt>=1){a._blendFrom=null;a._blendStart=null;}
+    }
+    a._drPos=[drLon,drLat,altM];
+    bb.position=Cesium.Cartesian3.fromDegrees(drLon,drLat,altM);
   }
-  updateTrails();
-  viewer.scene.requestRender();
 }
+
 function startAnim(){
   (function frame(ts){
     document.getElementById('h-utc').textContent=new Date().toISOString().substr(11,8);
+    // Satellite positions: every 5s
     if(ts-lastSatProp>5000){propSats();lastSatProp=ts;}
-    if(ts-_lastInterp>2000){interpAC();_lastInterp=ts;}
+    // Aircraft dead-reckoning: ~30fps (33ms) for smooth visual movement
+    if(ts-_lastInterp>33){interpAC();_lastInterp=ts;}
+    // Trail updates: every 3s (cheaper, runs less often)
+    if(ts-_lastTrailUpdate>3000){updateTrails();_lastTrailUpdate=ts;}
     requestAnimationFrame(frame);
   })(0);
 }
