@@ -10,50 +10,78 @@
 <script src="https://cdn.jsdelivr.net/npm/satellite.js@5.0.0/dist/satellite.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
-:root{--g:#00ff88;--gd:#00ff8844;--r:#ff3344;--a:#ffaa00;--c:#00ddff;--bg:rgba(0,0,0,.85);--brd:rgba(0,255,136,.25);--f:'Share Tech Mono','Courier New',monospace;--ft:'Orbitron',sans-serif;--pw:270px}
+:root{--g:#00ff88;--gd:#00ff8844;--r:#ff3344;--a:#ffaa00;--c:#00ddff;--bg:rgba(0,0,0,.9);--brd:rgba(0,255,136,.22);--f:'Share Tech Mono','Courier New',monospace;--ft:'Orbitron',sans-serif}
 *{margin:0;padding:0;box-sizing:border-box}html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var(--f);color:var(--g);touch-action:none}
 #globe{position:absolute;inset:0;z-index:1}
 .cesium-viewer-bottom,.cesium-viewer-toolbar,.cesium-viewer-fullscreenContainer,.cesium-credit-logoContainer,.cesium-credit-expand-link,.cesium-credit-textContainer,.cesium-widget-credits{display:none!important}
-body.mode-nvg #globe{filter:brightness(.6) saturate(.1) sepia(1) hue-rotate(70deg) brightness(1.4) contrast(1.2)}
-body.mode-flir #globe{filter:brightness(.7) saturate(0) invert(1) hue-rotate(180deg) contrast(1.5) brightness(1.2)}
+/* ── NVG: green phosphor night vision with scanlines + vignette ── */
+body.mode-nvg #globe{filter:saturate(0) brightness(.45) contrast(3) sepia(1) hue-rotate(80deg) brightness(2.2)}
+body.mode-nvg::after{content:'';position:fixed;inset:0;z-index:9;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,30,0,.18) 3px,rgba(0,30,0,.18) 4px),radial-gradient(ellipse at center,transparent 52%,rgba(0,0,0,.88) 100%);pointer-events:none}
+/* ── FLIR: black-hot thermal with warm edge glow ── */
+body.mode-flir #globe{filter:saturate(0) contrast(4) brightness(.72) invert(1) sepia(.4) hue-rotate(-18deg)}
+body.mode-flir::after{content:'';position:fixed;inset:0;z-index:9;background:radial-gradient(ellipse at center,transparent 40%,rgba(140,50,0,.32) 100%);pointer-events:none}
 #hud{position:absolute;inset:0;z-index:10;pointer-events:none}#hud>*{pointer-events:auto}
-#topbar{position:absolute;top:0;left:0;right:0;height:46px;background:linear-gradient(180deg,rgba(0,0,0,.94),rgba(0,0,0,.72));border-bottom:1px solid var(--brd);display:flex;align-items:center;justify-content:space-between;padding:0 14px;z-index:100}
+/* ── Top bar ── */
+#topbar{position:absolute;top:0;left:0;right:0;height:44px;background:linear-gradient(180deg,rgba(0,0,0,.96),rgba(0,0,0,.7));border-bottom:1px solid var(--brd);display:flex;align-items:center;justify-content:space-between;padding:0 14px;z-index:100}
 .logo{font-family:var(--ft);font-size:14px;font-weight:900;letter-spacing:4px;text-shadow:0 0 20px var(--gd)}.logo span{color:var(--gd);font-weight:400;font-size:9px;letter-spacing:2px;margin-left:8px}
-.coords{font-size:11px;display:flex;gap:18px;opacity:.85}.coords .lb{color:var(--gd);font-size:9px;margin-right:3px}
-.modes{display:flex;gap:3px}.modes button{background:0 0;border:1px solid var(--brd);color:var(--gd);font-family:var(--f);font-size:10px;padding:4px 12px;cursor:pointer;transition:.2s}.modes button:hover{background:var(--gd);color:#000}.modes button.active{background:var(--g);color:#000;font-weight:700}
-#lp{position:absolute;top:54px;left:8px;width:var(--pw);background:var(--bg);border:1px solid var(--brd);border-radius:2px;padding:10px 12px;max-height:calc(100vh - 110px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--gd) transparent}
-#lp h3{font-family:var(--ft);font-size:9px;letter-spacing:3px;color:var(--gd);margin-bottom:8px;padding-bottom:5px;border-bottom:1px solid var(--brd)}
-.lt{display:flex;align-items:center;justify-content:space-between;padding:5px 4px;border-bottom:1px solid rgba(0,255,136,.07);cursor:pointer;user-select:none}.lt:hover{background:rgba(0,255,136,.06)}
-.lt .l{display:flex;align-items:center;gap:7px}.lt .ic{width:16px;text-align:center;font-size:12px}.lt .nm{font-size:10px}.lt .ct{font-size:10px;color:var(--c);min-width:42px;text-align:right}
-.lt.off .nm{color:rgba(0,255,136,.25);text-decoration:line-through}.lt.off .ic{opacity:.2}.lt.off .ct{color:rgba(0,221,255,.25)}
-.ss{margin-top:10px}.ss h4{font-size:8px;letter-spacing:2px;color:var(--gd);margin-bottom:5px}
-.sr{display:flex;justify-content:space-between;align-items:center;font-size:9px;padding:2px 0;opacity:.75}
-.sd{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:5px}.sd.ok{background:var(--g);box-shadow:0 0 6px var(--g)}.sd.err{background:var(--r);box-shadow:0 0 6px var(--r)}.sd.ld{background:var(--a);animation:pulse 1s infinite}
-.sts{color:var(--gd);font-size:8px}
-#rp{position:absolute;top:54px;right:8px;width:310px;background:var(--bg);border:1px solid var(--brd);border-radius:2px;padding:12px;display:none;max-height:calc(100vh - 110px);overflow-y:auto}#rp.vis{display:block}
+.coords{font-size:11px;display:flex;gap:16px;opacity:.85}.coords .lb{color:var(--gd);font-size:9px;margin-right:3px}
+/* ── Detail panels (right side) ── */
+#rp{position:absolute;top:52px;right:8px;width:310px;background:var(--bg);border:1px solid var(--brd);border-radius:2px;padding:12px;display:none;max-height:calc(100vh - 120px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--gd) transparent}#rp.vis{display:block}
+#sp{position:absolute;top:52px;right:8px;width:310px;background:var(--bg);border:1px solid var(--brd);border-radius:2px;padding:12px;display:none;max-height:calc(100vh - 120px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--gd) transparent}#sp.vis{display:block}
 .rph{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:7px;border-bottom:1px solid var(--brd)}.rpt{font-family:var(--ft);font-size:10px;letter-spacing:2px}
 .rpc{background:0 0;border:1px solid var(--brd);color:var(--gd);font-family:var(--f);cursor:pointer;padding:2px 8px;font-size:10px}.rpc:hover{background:var(--r);color:#000}
 .dr{display:flex;justify-content:space-between;padding:3px 0;font-size:10px;border-bottom:1px solid rgba(0,255,136,.05)}.dr .dl{color:var(--gd);margin-right:12px}.dr .dv{color:var(--g);text-align:right;max-width:180px;word-break:break-all}
-#cp{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.96);border:1px solid var(--g);border-radius:2px;display:none;z-index:200;box-shadow:0 0 60px rgba(0,255,136,.12)}#cp.vis{display:block}
+.sp-btn{width:100%;background:0 0;border:1px solid var(--brd);color:var(--gd);font-family:var(--f);font-size:9px;padding:4px 8px;cursor:pointer;letter-spacing:1px;margin-top:6px;text-align:left}.sp-btn:hover{background:var(--g);color:#000}.sp-btn.active{background:var(--c);border-color:var(--c);color:#000}
+/* ── CCTV viewer ── */
+#cp{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.97);border:1px solid var(--g);border-radius:2px;display:none;z-index:200;box-shadow:0 0 60px rgba(0,255,136,.12)}#cp.vis{display:block}
 .cph{display:flex;justify-content:space-between;align-items:center;padding:7px 12px;border-bottom:1px solid var(--brd);background:rgba(0,255,136,.04)}.cpt{font-family:var(--ft);font-size:9px;letter-spacing:2px}
 .cpx{background:0 0;border:1px solid var(--brd);color:var(--gd);font-family:var(--f);cursor:pointer;padding:2px 8px;font-size:10px}.cpx:hover{background:var(--r);color:#000}
 .cpb{padding:6px;min-width:480px;min-height:320px;display:flex;align-items:center;justify-content:center}.cpb img,.cpb video{max-width:560px;max-height:420px;display:block}
 .cpe{color:var(--r);font-size:11px;text-align:center;padding:40px 20px;line-height:1.6}.cpm{padding:5px 12px;font-size:9px;color:var(--gd);border-top:1px solid var(--brd)}
-#bb{position:absolute;bottom:0;left:0;right:0;height:34px;background:linear-gradient(0deg,rgba(0,0,0,.94),rgba(0,0,0,.72));border-top:1px solid var(--brd);display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:9px}
-.pc{display:flex;align-items:center;gap:7px}.pd{width:7px;height:7px;border-radius:50%;background:var(--g);box-shadow:0 0 8px var(--g);animation:pulse 2s infinite}.ctrs{display:flex;gap:14px}.ctrs .cv{color:var(--c)}
-#stx{max-width:360px;overflow:hidden;white-space:nowrap;color:var(--gd)}
-#dl{position:absolute;bottom:42px;left:8px;width:var(--pw);background:var(--bg);border:1px solid var(--brd);border-radius:2px;padding:6px 8px;max-height:150px;overflow-y:auto;font-size:8px;line-height:1.5;scrollbar-width:thin;scrollbar-color:var(--gd) transparent}
-.le{border-bottom:1px solid rgba(0,255,136,.04);padding:1px 0}.lt2{color:var(--gd);margin-right:4px}.ls{color:var(--c);margin-right:3px}
-#ch{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:56px;height:56px;pointer-events:none;z-index:5;opacity:.3}
+/* ── Crosshair ── */
+#ch{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:56px;height:56px;pointer-events:none;z-index:5;opacity:.28}
 .cc{position:absolute;width:13px;height:13px;border-color:var(--g);border-style:solid;border-width:0}.ctl{top:0;left:0;border-top-width:1px;border-left-width:1px}.ctr{top:0;right:0;border-top-width:1px;border-right-width:1px}.cbl{bottom:0;left:0;border-bottom-width:1px;border-left-width:1px}.cbr{bottom:0;right:0;border-bottom-width:1px;border-right-width:1px}
 .cdt{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:2px;height:2px;background:var(--g);border-radius:50%}
-#notifs{position:absolute;top:58px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:5px;z-index:150;pointer-events:none}
+/* ── Notifications ── */
+#notifs{position:absolute;top:56px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:5px;z-index:150;pointer-events:none}
 .nf{background:var(--bg);border:1px solid var(--g);border-radius:2px;padding:7px 18px;font-size:10px;animation:nfIn .3s ease-out,nfOut .3s ease-in 3.7s forwards;white-space:nowrap;pointer-events:none}.nf.error{border-color:var(--r);color:var(--r)}.nf.warn{border-color:var(--a);color:var(--a)}
+/* ── Tooltip ── */
 #tt{position:absolute;background:rgba(0,0,0,.94);border:1px solid var(--g);padding:4px 10px;font-size:10px;border-radius:1px;pointer-events:none;z-index:50;display:none;white-space:nowrap;box-shadow:0 0 10px rgba(0,255,136,.15)}
-#zl{position:absolute;bottom:42px;right:8px;background:var(--bg);border:1px solid var(--brd);border-radius:2px;padding:7px 10px;font-size:8px;display:none}#zl.vis{display:block}#zl h4{font-size:8px;letter-spacing:2px;color:var(--gd);margin-bottom:5px}.li{display:flex;align-items:center;gap:5px;padding:1px 0}.lsw{width:11px;height:11px;border-radius:1px;border:1px solid rgba(255,255,255,.15)}
+/* ── Debug log ── */
+#dl{position:absolute;bottom:56px;left:8px;width:280px;background:rgba(0,0,0,.88);border:1px solid var(--brd);border-radius:2px;padding:6px 8px;max-height:130px;overflow-y:auto;font-size:8px;line-height:1.5;scrollbar-width:thin;scrollbar-color:var(--gd) transparent}
+.le{border-bottom:1px solid rgba(0,255,136,.04);padding:1px 0}.lt2{color:var(--gd);margin-right:4px}.ls{color:var(--c);margin-right:3px}
+/* ── Zone legend ── */
+#zl{position:absolute;bottom:56px;right:8px;background:var(--bg);border:1px solid var(--brd);border-radius:2px;padding:7px 10px;font-size:8px;display:none}#zl.vis{display:block}#zl h4{font-size:8px;letter-spacing:2px;color:var(--gd);margin-bottom:5px}.li{display:flex;align-items:center;gap:5px;padding:1px 0}.lsw{width:11px;height:11px;border-radius:1px;border:1px solid rgba(255,255,255,.15)}
+/* ── Status dots (inside dock panel) ── */
+.sr{display:flex;align-items:center;gap:5px;font-size:9px;opacity:.85;white-space:nowrap}
+.sd{width:6px;height:6px;border-radius:50%;flex-shrink:0;display:inline-block}.sd.ok{background:var(--g);box-shadow:0 0 5px var(--g)}.sd.err{background:var(--r);box-shadow:0 0 5px var(--r)}.sd.ld{background:var(--a);animation:pulse 1s infinite}
+.sts{color:var(--gd);font-size:8px;margin-left:2px}
+/* ── Bottom Intelligence Dock ── */
+#dock{position:absolute;bottom:0;left:0;right:0;z-index:100;background:linear-gradient(0deg,rgba(0,0,0,.97),rgba(0,0,0,.88));border-top:1px solid var(--brd)}
+#dock-panel{max-height:0;overflow:hidden;transition:max-height .28s cubic-bezier(.4,0,.2,1)}
+#dock-panel.open{max-height:150px;overflow-y:auto}
+.dp-inner{padding:8px 14px 10px;display:flex;flex-wrap:wrap;gap:4px 22px;border-bottom:1px solid rgba(0,255,136,.1)}
+.dp-title{font-size:7px;letter-spacing:2px;color:var(--gd);width:100%;margin-bottom:5px;opacity:.55}
+#dock-bar{height:48px;display:flex;align-items:center;padding:0 8px;gap:0;overflow:hidden}
+#dock-toggle{background:0 0;border:none;border-right:1px solid var(--brd);color:var(--gd);font-family:var(--f);font-size:13px;width:34px;cursor:pointer;height:100%;flex-shrink:0;opacity:.55;transition:.15s}
+#dock-toggle:hover{opacity:1;background:rgba(0,255,136,.06)}
+.dock-sep{width:1px;height:26px;background:var(--brd);flex-shrink:0;margin:0 8px}
+.dock-modes{display:flex;gap:2px;flex-shrink:0}
+.dock-modes button{background:0 0;border:1px solid rgba(0,255,136,.18);color:rgba(0,255,136,.5);font-family:var(--f);font-size:9px;padding:4px 10px;cursor:pointer;transition:.15s;letter-spacing:1px}
+.dock-modes button:hover{border-color:var(--g);color:var(--g)}
+.dock-modes button.active{background:var(--g);border-color:var(--g);color:#000;font-weight:700}
+#dock-layers{display:flex;gap:3px;flex:1;overflow-x:auto;scrollbar-width:none;margin:0 6px;min-width:0}
+#dock-layers::-webkit-scrollbar{display:none}
+.lc{display:flex;align-items:center;gap:5px;padding:5px 10px;border:1px solid rgba(0,255,136,.15);border-radius:2px;cursor:pointer;white-space:nowrap;transition:.15s;flex-shrink:0;user-select:none}
+.lc:hover{border-color:rgba(0,255,136,.6);background:rgba(0,255,136,.07)}
+.lc.off{opacity:.25;border-color:rgba(0,255,136,.06)}
+.lc-ic{font-size:14px;line-height:1}
+.lc-nm{font-size:8px;letter-spacing:1px;color:rgba(0,255,136,.6)}
+.lc-ct{font-size:11px;color:var(--c);font-weight:bold;min-width:26px;text-align:right}
+.dock-status{display:flex;align-items:center;gap:6px;flex-shrink:0;font-size:8px;border-left:1px solid var(--brd);padding-left:10px;margin-left:4px;max-width:200px}
+.pd{width:7px;height:7px;border-radius:50%;background:var(--g);box-shadow:0 0 8px var(--g);animation:pulse 2s infinite;flex-shrink:0}
+#stx{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:rgba(0,255,136,.55);font-size:8px}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}@keyframes nfIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}@keyframes nfOut{from{opacity:1}to{opacity:0;transform:translateY(-10px)}}
-#sp{position:absolute;top:54px;right:8px;width:310px;background:var(--bg);border:1px solid var(--brd);border-radius:2px;padding:12px;display:none;max-height:calc(100vh - 110px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--gd) transparent}#sp.vis{display:block}.sp-btn{width:100%;background:0 0;border:1px solid var(--brd);color:var(--gd);font-family:var(--f);font-size:9px;padding:4px 8px;cursor:pointer;letter-spacing:1px;margin-top:6px;text-align:left}.sp-btn:hover{background:var(--g);color:#000}.sp-btn.active{background:var(--c);border-color:var(--c);color:#000}
-body.mode-nvg::after{content:'';position:fixed;inset:0;z-index:9;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,255,0,.03) 2px,rgba(0,255,0,.03) 4px);pointer-events:none}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:0 0}::-webkit-scrollbar-thumb{background:var(--gd);border-radius:2px}
 </style>
 </head>
@@ -64,40 +92,48 @@ body.mode-nvg::after{content:'';position:fixed;inset:0;z-index:9;background:repe
   <div id="topbar">
     <div class="logo">WORLDVIEW<span>SPATIAL INTELLIGENCE</span></div>
     <div class="coords"><div><span class="lb">LAT</span><span id="h-lat">0.0000</span></div><div><span class="lb">LON</span><span id="h-lon">0.0000</span></div><div><span class="lb">ALT</span><span id="h-alt">—</span></div><div><span class="lb">UTC</span><span id="h-utc">00:00:00</span></div></div>
-    <div class="modes"><button id="btn-normal" class="active" onclick="setMode('normal')">NORMAL</button><button id="btn-nvg" onclick="setMode('nvg')">NVG</button><button id="btn-flir" onclick="setMode('flir')">FLIR</button></div>
-  </div>
-  <div id="lp">
-    <h3>INTELLIGENCE LAYERS</h3>
-    <div class="lt" data-ly="aircraft" onclick="tgl('aircraft')"><div class="l"><span class="ic">✈</span><span class="nm">LIVE AIRCRAFT</span></div><span class="ct" id="c-ac">0</span></div>
-    <div class="lt" data-ly="military" onclick="tgl('military')"><div class="l"><span class="ic">⚔</span><span class="nm">MILITARY FLIGHTS</span></div><span class="ct" id="c-mil">0</span></div>
-    <div class="lt" data-ly="satellites" onclick="tgl('satellites')"><div class="l"><span class="ic">🛰</span><span class="nm">SATELLITES</span></div><span class="ct" id="c-sat">0</span></div>
-    <div class="lt" data-ly="ships" onclick="tgl('ships')"><div class="l"><span class="ic">🚢</span><span class="nm">AIS VESSELS</span></div><span class="ct" id="c-shp">0</span></div>
-    <div class="lt" data-ly="cctv" onclick="tgl('cctv')"><div class="l"><span class="ic">📷</span><span class="nm">CCTV FEEDS</span></div><span class="ct" id="c-cam">0</span></div>
-    <div class="lt" data-ly="zones" onclick="tgl('zones')"><div class="l"><span class="ic">⚠</span><span class="nm">RESTRICTED ZONES</span></div><span class="ct" id="c-zn">—</span></div>
-    <div class="lt" data-ly="labels" onclick="tgl('labels')"><div class="l"><span class="ic">Ⓐ</span><span class="nm">LABELS / BORDERS</span></div><span class="ct" id="c-lb">—</span></div>
-    <div class="ss"><h4>DATA SOURCE STATUS</h4>
-      <div class="sr" id="s-ac"><span class="sd ld"></span>Aircraft API<span class="sts" id="t-ac">—</span></div>
-      <div class="sr" id="s-tle"><span class="sd ld"></span>CelesTrak TLE<span class="sts" id="t-tle">—</span></div>
-      <div class="sr" id="s-ais"><span class="sd ld"></span>Digitraffic AIS<span class="sts" id="t-ais">—</span></div>
-      <div class="sr" id="s-tfl"><span class="sd ld"></span>TfL JamCams<span class="sts" id="t-tfl">—</span></div>
-      <div class="sr" id="s-ab"><span class="sd ld"></span>Autobahn GmbH<span class="sts" id="t-ab">—</span></div>
-      <div class="sr" id="s-dtfi"><span class="sd ld"></span>Digitraffic FI<span class="sts" id="t-dtfi">—</span></div>
-      <div class="sr" id="s-drivebc"><span class="sd ld"></span>DriveBC CA<span class="sts" id="t-drivebc">—</span></div>
-      <div class="sr" id="s-bw"><span class="sd ld"></span>BarentsWatch AIS<span class="sts" id="t-bw">—</span></div>
-    </div>
-    <div class="ss" style="margin-top:6px"><div class="sr" style="font-size:8px;color:var(--gd)">Zones: Stand Mär 2025 / ICAO/NOTAM</div></div>
   </div>
   <div id="rp"><div class="rph"><span class="rpt" id="rp-t">DETAILS</span><button class="rpc" onclick="closeD()">✕</button></div><div id="rp-c"></div></div>
   <div id="sp"><div class="rph"><span class="rpt" id="sp-t">SATELLITE TRACK</span><button class="rpc" onclick="closeSP()">✕</button></div><div id="sp-c"></div><button class="sp-btn" id="sp-orb-btn" onclick="toggleOrbitPath()">⬡ SHOW ORBIT PATH</button></div>
   <div id="cp"><div class="cph"><span class="cpt" id="cp-t">CCTV</span><button class="cpx" onclick="closeC()">✕</button></div><div class="cpb" id="cp-b"></div><div class="cpm" id="cp-m"></div></div>
   <div id="zl"><h4>ZONE CLASSIFICATION</h4><div class="li"><div class="lsw" style="background:rgba(255,0,0,.4)"></div>No-Fly Zone</div><div class="li"><div class="lsw" style="background:rgba(255,170,0,.35)"></div>FIR/TMA Restriction</div><div class="li"><div class="lsw" style="background:rgba(255,204,0,.4)"></div>GPS Jam: MODERATE</div><div class="li"><div class="lsw" style="background:rgba(255,102,0,.45)"></div>GPS Jam: HIGH</div><div class="li"><div class="lsw" style="background:rgba(255,32,32,.5)"></div>GPS Jam: EXTREME</div></div>
   <div id="notifs"></div><div id="tt"></div>
-  <div id="bb">
-    <div class="pc"><div class="pd"></div><span>WORLDVIEW ACTIVE</span></div>
-    <div class="ctrs"><div>AC:<span class="cv" id="b-ac">0</span></div><div>SAT:<span class="cv" id="b-sat">0</span></div><div>VES:<span class="cv" id="b-shp">0</span></div><div>CAM:<span class="cv" id="b-cam">0</span></div></div>
-    <div id="stx">INITIALIZING...</div>
-  </div>
   <div id="dl"></div>
+  <!-- ── Intelligence Dock (bottom) ── -->
+  <div id="dock">
+    <div id="dock-panel">
+      <div class="dp-inner">
+        <div class="dp-title">DATA SOURCE STATUS</div>
+        <div class="sr" id="s-ac"><span class="sd ld"></span>Aircraft API<span class="sts" id="t-ac">—</span></div>
+        <div class="sr" id="s-tle"><span class="sd ld"></span>CelesTrak TLE<span class="sts" id="t-tle">—</span></div>
+        <div class="sr" id="s-ais"><span class="sd ld"></span>Digitraffic AIS<span class="sts" id="t-ais">—</span></div>
+        <div class="sr" id="s-tfl"><span class="sd ld"></span>TfL JamCams<span class="sts" id="t-tfl">—</span></div>
+        <div class="sr" id="s-ab"><span class="sd ld"></span>Autobahn GmbH<span class="sts" id="t-ab">—</span></div>
+        <div class="sr" id="s-dtfi"><span class="sd ld"></span>Digitraffic FI Cam<span class="sts" id="t-dtfi">—</span></div>
+        <div class="sr" id="s-drivebc"><span class="sd ld"></span>DriveBC CA<span class="sts" id="t-drivebc">—</span></div>
+      </div>
+    </div>
+    <div id="dock-bar">
+      <button id="dock-toggle" onclick="toggleDock()" title="Data sources">▲</button>
+      <div class="dock-sep"></div>
+      <div class="dock-modes">
+        <button id="btn-normal" class="active" onclick="setMode('normal')">NORM</button>
+        <button id="btn-nvg" onclick="setMode('nvg')">NVG</button>
+        <button id="btn-flir" onclick="setMode('flir')">FLIR</button>
+      </div>
+      <div class="dock-sep"></div>
+      <div id="dock-layers">
+        <div class="lc" data-ly="aircraft" onclick="tgl('aircraft')"><span class="lc-ic">✈</span><span class="lc-nm">AIRCRAFT</span><span class="lc-ct" id="c-ac">0</span></div>
+        <div class="lc" data-ly="military" onclick="tgl('military')"><span class="lc-ic">⚔</span><span class="lc-nm">MILITARY</span><span class="lc-ct" id="c-mil">0</span></div>
+        <div class="lc" data-ly="satellites" onclick="tgl('satellites')"><span class="lc-ic">🛰</span><span class="lc-nm">SATELLITES</span><span class="lc-ct" id="c-sat">0</span></div>
+        <div class="lc" data-ly="ships" onclick="tgl('ships')"><span class="lc-ic">🚢</span><span class="lc-nm">VESSELS</span><span class="lc-ct" id="c-shp">0</span></div>
+        <div class="lc" data-ly="cctv" onclick="tgl('cctv')"><span class="lc-ic">📷</span><span class="lc-nm">CCTV</span><span class="lc-ct" id="c-cam">0</span></div>
+        <div class="lc" data-ly="zones" onclick="tgl('zones')"><span class="lc-ic">⚠</span><span class="lc-nm">ZONES</span><span class="lc-ct" id="c-zn">—</span></div>
+        <div class="lc" data-ly="labels" onclick="tgl('labels')"><span class="lc-ic">Ⓐ</span><span class="lc-nm">LABELS</span><span class="lc-ct" id="c-lb">—</span></div>
+      </div>
+      <div class="dock-status"><div class="pd"></div><div id="stx">INITIALIZING...</div></div>
+    </div>
+  </div>
 </div>
 <script>
 // ═══════════════════════════════════════════════════════════════
@@ -137,7 +173,9 @@ const shipTrailPool=[];  // Pre-allocated PolylineCollection pool (ships)
 let trailLineColl,shipTrailLineColl,satPtCol,_lastPick=0;
 let satTrackIdx=null,satTrackInt=null,orbitPathDS=null,showOrbit=false;
 
-function tgl(n){layers[n]=layers[n]?0:1;const el=document.querySelector(`.lt[data-ly="${n}"]`);if(el)el.classList.toggle('off',!layers[n]);if(n==='zones')document.getElementById('zl').classList.toggle('vis',!!layers.zones);
+let _dockOpen=false;
+function toggleDock(){_dockOpen=!_dockOpen;document.getElementById('dock-panel').classList.toggle('open',_dockOpen);document.getElementById('dock-toggle').textContent=_dockOpen?'▼':'▲';}
+function tgl(n){layers[n]=layers[n]?0:1;const el=document.querySelector(`.lc[data-ly="${n}"]`);if(el)el.classList.toggle('off',!layers[n]);if(n==='zones')document.getElementById('zl').classList.toggle('vis',!!layers.zones);
   const sh=!!layers[n];
   if(prims[n])prims[n].show=sh;
   if(n==='aircraft'&&prims.acBB)prims.acBB.show=sh;
@@ -155,11 +193,12 @@ function tgl(n){layers[n]=layers[n]?0:1;const el=document.querySelector(`.lt[dat
 const MIL=['AE','AF1','AF2','CFC','CNV','DUKE','EVIL','FURY','HAWK','IRON','JAKE','KING','NAVY','NCHO','OTTO','PAT','RAGE','RCH','RED','RFF','RRR','SAM','SNTRY','TOPCT','VIPER','WOLF','IAM','BAF','GAF','FAF','SHF','RFR','MMF','PLF','HUF','SVF','NRF','JEDI','SPAR','EVAC'];
 function isMil(cs){if(!cs)return false;const u=cs.trim().toUpperCase();return MIL.some(p=>u.startsWith(p));}
 
-// ── Canvas icons (created ONCE) ──
-function makeIcon(draw,sz){const c=document.createElement('canvas');c.width=sz;c.height=sz;draw(c.getContext('2d'),sz);return c;}
-const acIconG=makeIcon((x,s)=>{x.translate(s/2,s/2);x.beginPath();x.moveTo(0,-s/2+1);x.lineTo(s/3,s/3);x.lineTo(0,s/6);x.lineTo(-s/3,s/3);x.closePath();x.fillStyle='#00ff88';x.fill();x.strokeStyle='rgba(0,0,0,.6)';x.lineWidth=1.5;x.stroke();},32);
-const acIconR=makeIcon((x,s)=>{x.translate(s/2,s/2);x.beginPath();x.moveTo(0,-s/2+1);x.lineTo(s/3,s/3);x.lineTo(0,s/6);x.lineTo(-s/3,s/3);x.closePath();x.fillStyle='#ff3344';x.fill();x.strokeStyle='rgba(0,0,0,.6)';x.lineWidth=1.5;x.stroke();},32);
-const shipIcn=makeIcon((x,s)=>{x.translate(s/2,s/2);x.beginPath();x.moveTo(0,-s/2+2);x.lineTo(s/4,0);x.lineTo(s/5,s/3);x.lineTo(-s/5,s/3);x.lineTo(-s/4,0);x.closePath();x.fillStyle='#00ddff';x.fill();},18);
+// ── Canvas icons (HiDPI-aware, created ONCE) ──
+function makeIcon(draw,sz){const dpr=Math.min(window.devicePixelRatio||1,2);const c=document.createElement('canvas');c.width=sz*dpr;c.height=sz*dpr;const ctx=c.getContext('2d');ctx.scale(dpr,dpr);draw(ctx,sz);return c;}
+const acIconG=makeIcon((x,s)=>{x.translate(s/2,s/2);x.beginPath();x.moveTo(0,-s/2+1);x.lineTo(s/3,s/3);x.lineTo(0,s/5);x.lineTo(-s/3,s/3);x.closePath();x.fillStyle='#00ff88';x.shadowColor='#00ff88';x.shadowBlur=6;x.fill();x.strokeStyle='rgba(0,0,0,.7)';x.lineWidth=1.5;x.shadowBlur=0;x.stroke();},40);
+const acIconR=makeIcon((x,s)=>{x.translate(s/2,s/2);x.beginPath();x.moveTo(0,-s/2+1);x.lineTo(s/3,s/3);x.lineTo(0,s/5);x.lineTo(-s/3,s/3);x.closePath();x.fillStyle='#ff3344';x.shadowColor='#ff3344';x.shadowBlur=8;x.fill();x.strokeStyle='rgba(0,0,0,.7)';x.lineWidth=1.5;x.shadowBlur=0;x.stroke();},40);
+const shipIcn=makeIcon((x,s)=>{x.translate(s/2,s/2);x.beginPath();x.moveTo(0,-s/2+2);x.lineTo(s/4,0);x.lineTo(s/5,s/3);x.lineTo(-s/5,s/3);x.lineTo(-s/4,0);x.closePath();x.fillStyle='#00ddff';x.shadowColor='#00ddff';x.shadowBlur=4;x.fill();},20);
+let _selBB=null; // currently highlighted billboard
 
 // ── Zone GeoJSON ──
 const NFZ={type:'FeatureCollection',features:[{type:'Feature',properties:{n:'Ukraine'},geometry:{type:'Polygon',coordinates:[[[22.15,44.39],[22.15,52.38],[25.77,51.94],[30.42,52.34],[33.39,52.28],[36.4,50.31],[40.16,49.6],[40.21,47.02],[38.19,46.1],[33.63,45.33],[31,44.58],[26.6,45.44],[22.15,44.39]]]}},{type:'Feature',properties:{n:'Belarus'},geometry:{type:'Polygon',coordinates:[[[23.18,51.39],[24.36,53.89],[25.77,54.85],[28.15,56.17],[30.97,55.6],[32.74,53.34],[30.42,51.26],[24.36,51.8],[23.18,51.39]]]}},{type:'Feature',properties:{n:'North Korea'},geometry:{type:'Polygon',coordinates:[[[124.27,37.77],[125.07,39.13],[127.1,39.56],[128.31,38.61],[129.35,37.66],[129.06,36.16],[126.64,36.96],[124.27,37.77]]]}},{type:'Feature',properties:{n:'Iran'},geometry:{type:'Polygon',coordinates:[[[44.11,39.36],[48.57,31.04],[52.79,26.36],[59.2,25.51],[63.33,29.96],[60.48,34.14],[57.31,36.99],[52.65,36.8],[49.56,37.51],[46.49,38.87],[44.11,39.36]]]}},{type:'Feature',properties:{n:'Iraq'},geometry:{type:'Polygon',coordinates:[[[38.79,36.69],[42.35,37.06],[46.14,35.63],[48.58,33.5],[47.58,31],[42.07,31.11],[38.79,33.38],[40.69,34.77],[38.79,36.69]]]}},{type:'Feature',properties:{n:'Libya'},geometry:{type:'Polygon',coordinates:[[[9.52,33.14],[15.18,32.39],[19.13,30.27],[24.97,29.24],[24.97,21.99],[15,23],[9.85,26.6],[9.52,33.14]]]}},{type:'Feature',properties:{n:'Syria'},geometry:{type:'Polygon',coordinates:[[[35.73,32.71],[35.84,35.85],[37.07,36.65],[42.35,37.06],[41.24,34.75],[39.2,32.15],[35.73,32.71]]]}},{type:'Feature',properties:{n:'Yemen'},geometry:{type:'Polygon',coordinates:[[[42.65,13.3],[43.32,12.39],[48.42,14],[52,15.6],[53.09,16.65],[47.44,14.38],[44.41,15.36],[42.65,13.3]]]}},{type:'Feature',properties:{n:'Somalia'},geometry:{type:'Polygon',coordinates:[[[40.98,11.94],[44.95,8],[50.81,1],[49.22,-.35],[42.05,2],[40.99,9.12],[40.98,11.94]]]}},{type:'Feature',properties:{n:'Afghanistan'},geometry:{type:'Polygon',coordinates:[[[61.21,35.65],[67.78,37.19],[70.42,38.07],[71.84,36.68],[73.26,34.66],[69.5,33.06],[66.25,29.86],[62.48,29.41],[60.48,34.14],[61.21,35.65]]]}},{type:'Feature',properties:{n:'Sudan'},geometry:{type:'Polygon',coordinates:[[[23.84,19.58],[25,22],[36.87,22],[38.99,16.84],[34.07,11.55],[30.83,9.71],[24.53,10.5],[23.61,13.78],[23.84,19.58]]]}},{type:'Feature',properties:{n:'Venezuela'},geometry:{type:'Polygon',coordinates:[[[-73.35,11.23],[-68.37,11.16],[-63.21,10.37],[-60.97,6.73],[-69.25,6.08],[-72.79,9.09],[-73.35,11.23]]]}},{type:'Feature',properties:{n:'Crimea'},geometry:{type:'Polygon',coordinates:[[[31.6,44.4],[31.6,46.2],[36.7,46.2],[36.7,44.4],[31.6,44.4]]]}},{type:'Feature',properties:{n:'Nagorno-Karabakh'},geometry:{type:'Polygon',coordinates:[[[46,39.4],[46,40.6],[47.8,40.6],[47.8,39.4],[46,39.4]]]}},{type:'Feature',properties:{n:'Myanmar'},geometry:{type:'Polygon',coordinates:[[[92.2,9.5],[92.2,28.5],[101.2,28.5],[101.2,9.5],[92.2,9.5]]]}},{type:'Feature',properties:{n:'Tigray/Ethiopia'},geometry:{type:'Polygon',coordinates:[[[36.5,11.5],[36.5,15.5],[42.5,15.5],[42.5,11.5],[36.5,11.5]]]}},{type:'Feature',properties:{n:'Mali/Sahel'},geometry:{type:'Polygon',coordinates:[[[-5.5,12],[-5.5,20.5],[4.2,20.5],[4.2,12],[-5.5,12]]]}},{type:'Feature',properties:{n:'Russia Border Zone'},geometry:{type:'Polygon',coordinates:[[[31,50.5],[31,52.3],[40.5,52.3],[40.5,50.5],[31,50.5]]]}}]};
@@ -184,11 +223,12 @@ function initGlobe(){
     navigationHelpButton:false,animation:false,timeline:false,fullscreenButton:false,infoBox:false,
     selectionIndicator:false,creditContainer:document.createElement('div'),
     skyBox:new Cesium.SkyBox({sources:{positiveX:Cesium.buildModuleUrl('Assets/Textures/SkyBox/tycho2t3_80_px.jpg'),negativeX:Cesium.buildModuleUrl('Assets/Textures/SkyBox/tycho2t3_80_mx.jpg'),positiveY:Cesium.buildModuleUrl('Assets/Textures/SkyBox/tycho2t3_80_py.jpg'),negativeY:Cesium.buildModuleUrl('Assets/Textures/SkyBox/tycho2t3_80_my.jpg'),positiveZ:Cesium.buildModuleUrl('Assets/Textures/SkyBox/tycho2t3_80_pz.jpg'),negativeZ:Cesium.buildModuleUrl('Assets/Textures/SkyBox/tycho2t3_80_mz.jpg')}}),
-    skyAtmosphere:new Cesium.SkyAtmosphere(),scene3DOnly:true,msaaSamples:1,
+    skyAtmosphere:new Cesium.SkyAtmosphere(),scene3DOnly:true,msaaSamples:2,
     requestRenderMode:true,maximumRenderTimeChange:Infinity
   });
+  viewer.resolutionScale=Math.min(window.devicePixelRatio||1,2);
   viewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',maximumLevel:19}));
-  viewer.scene.globe.maximumScreenSpaceError=1.3;
+  viewer.scene.globe.maximumScreenSpaceError=1.1;
   viewer.scene.globe.tileCacheSize=250;
   viewer.scene.globe.preloadAncestors=true;
   viewer.scene.globe.preloadSiblings=true;
@@ -260,7 +300,11 @@ function initGlobe(){
     }else{tt.style.display='none';viewer.canvas.style.cursor='';}
   },Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
-  handler.setInputAction(ck=>{const pk=viewer.scene.pick(ck.position);if(!pk?.primitive?._wv)return;const d=pk.primitive._wv;
+  handler.setInputAction(ck=>{const pk=viewer.scene.pick(ck.position);
+    if(_selBB)try{_selBB.scale=1;}catch(e){}  // reset previous highlight
+    if(!pk?.primitive?._wv){_selBB=null;return;}
+    _selBB=pk.primitive;try{_selBB.scale=2;}catch(e){}
+    const d=pk.primitive._wv;
     if(d.t==='ac'||d.t==='mil')showD(d.t==='mil'?'MILITARY TRACK':'AIRCRAFT TRACK',[['ICAO24',d.hex],['CALLSIGN',d.cs],['TYPE',d.type||'—'],['OPERATOR',d.r],['ALTITUDE',d.alt],['SPEED',d.spd],['HEADING',d.trk],['POSITION',N(d.lat)+', '+N(d.lon)]]);
     else if(d.t==='sat')openSP(d.idx);
     else if(d.t==='shp')showD('VESSEL',[['MMSI',d.mmsi],['NAME',d.nm],['SOG',d.sog],['COG',d.cog],['POS',N(d.lat)+', '+N(d.lon)]]);
@@ -276,8 +320,7 @@ function startFeeds(){fetchAC();fetchSats();fetchShips();fetchCCTV();startAnim()
   setInterval(fetchAC,8000);setInterval(fetchShips,60000);setInterval(fetchCCTV,180000);setInterval(fetchSats,3600000);
   setInterval(()=>{updateTrails();updateShipTrails();viewer.scene.requestRender();},15000);
   setTimeout(fetchOpenSky,5000);setInterval(fetchOpenSky,30000);
-  setInterval(fetchBarentsWatch,90000);setTimeout(fetchBarentsWatch,8000);
-  log('SYS','Feeds: AC 8s (alle Regionen) + OpenSky 30s');}
+  log('SYS','Feeds: AC 8s (51 regions) + OpenSky 30s');}
 
 // ── Aircraft: All regions every 8s (no batching — airplanes.live has no rate limit) ──
 const AC_REGS=[
@@ -329,6 +372,7 @@ function renderAC(){
     acBB.removeAll();milBB.removeAll();
     for(const k in acBBTrack)delete acBBTrack[k];
     for(const k in milBBTrack)delete milBBTrack[k];
+    _selBB=null;
   }
   const seen={};let civN=0,milN=0;
   Object.values(acCache).forEach(a=>{
@@ -345,11 +389,12 @@ function renderAC(){
     seen[a.hex]=mil?1:0;
     const track=mil?milBBTrack:acBBTrack;
     if(track[a.hex]){
-      // Hot path: just update position/rotation — no GPU reallocation
-      track[a.hex].position=pos;track[a.hex].rotation=rot;track[a.hex].show=true;track[a.hex]._wv=wv;
+      // Hot path: only snap position for slow/ground aircraft; fast ones handled by interpAC for smooth movement
+      if(!a.gs||a.gs<15||a.alt_baro==='ground')track[a.hex].position=pos;
+      track[a.hex].rotation=rot;track[a.hex].show=true;track[a.hex]._wv=wv;
     }else{
       // Cold path: new aircraft, create billboard once
-      const bb=(mil?milBB:acBB).add({position:pos,image:mil?acIconR:acIconG,width:mil?18:14,height:mil?18:14,rotation:rot,alignedAxis:Cesium.Cartesian3.ZERO,scaleByDistance:new Cesium.NearFarScalar(1e4,1.2,5e6,.25)});
+      const bb=(mil?milBB:acBB).add({position:pos,image:mil?acIconR:acIconG,width:mil?24:20,height:mil?24:20,rotation:rot,alignedAxis:Cesium.Cartesian3.ZERO,scaleByDistance:new Cesium.NearFarScalar(1e4,1.2,5e6,.22)});
       bb._wv=wv;track[a.hex]=bb;
     }
     // Trail append
@@ -359,7 +404,7 @@ function renderAC(){
   // Hide billboards for aircraft gone from cache or that switched civ↔mil status
   for(const h in acBBTrack)if(!(h in seen)||seen[h]===1)acBBTrack[h].show=false;
   for(const h in milBBTrack)if(!(h in seen)||seen[h]===0)milBBTrack[h].show=false;
-  document.getElementById('c-ac').textContent=civN;document.getElementById('c-mil').textContent=milN;document.getElementById('b-ac').textContent=civN+milN;
+  document.getElementById('c-ac').textContent=civN;document.getElementById('c-mil').textContent=milN;
   updateTrails();
 }
 
@@ -369,7 +414,9 @@ function updateTrails(){
   let tc=0;
   for(const a of Object.values(acCache)){
     if(!a._trail||a._trail.length<2||tc>=100)continue;
-    trailPool[tc].positions=a._trail.map(p=>Cesium.Cartesian3.fromDegrees(p[0],p[1],p[2]));
+    const pts=a._trail.map(p=>Cesium.Cartesian3.fromDegrees(p[0],p[1],p[2]));
+    if(a._drPos)pts.push(Cesium.Cartesian3.fromDegrees(a._drPos[0],a._drPos[1],a._drPos[2]));
+    trailPool[tc].positions=pts;
     trailPool[tc].show=true;tc++;
   }
   viewer.scene.requestRender();
@@ -506,7 +553,7 @@ async function fetchSats(){
   if(!all.length){setSS('tle','err');return;}
   satRecs.length=0;satRecs.push(...all);
   setSS('tle','ok');log('TLE',all.length+' sats');
-  document.getElementById('c-sat').textContent=all.length;document.getElementById('b-sat').textContent=all.length;
+  document.getElementById('c-sat').textContent=all.length;
 
   // Create point primitives ONCE
   satPtCol.removeAll();satPts=[];
@@ -560,30 +607,12 @@ async function fetchShips(){
       n++;
     });
     for(const k in shipBBTrack)if(!seenShips.has(k))shipBBTrack[k].show=false;
-    document.getElementById('c-shp').textContent=n;document.getElementById('b-shp').textContent=n;setSS('ais','ok');log('AIS',n+' vessels');viewer.scene.requestRender();
+    document.getElementById('c-shp').textContent=n;setSS('ais','ok');log('AIS',n+' vessels');viewer.scene.requestRender();
   }catch(e){setSS('ais','err');log('AIS',e.message);}
 }
 
-// ── BarentsWatch AIS (Norwegian waters + Arctic) ──
-async function fetchBarentsWatch(){
-  try{log('AIS','BarentsWatch...');const r=await fetch('https://live.ais.barentswatch.no/v1/latest/combined');if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();if(!Array.isArray(d)||!d.length)throw new Error('Empty');
-    if(Object.keys(shipBBTrack).length>4500){prims.shipBB.removeAll();for(const k in shipBBTrack)delete shipBBTrack[k];}
-    const seenBW=new Set();let n=0;
-    d.forEach(v=>{const lon=v.longitude,lat=v.latitude;if(lon==null||lat==null)return;
-      const key='bw-'+(v.mmsi||lon+','+lat);
-      const hdg=v.courseOverGround||v.trueHeading||0;
-      const pos=Cesium.Cartesian3.fromDegrees(lon,lat,50);
-      const rot=Cesium.Math.toRadians(-hdg);
-      const wv={t:'shp',mmsi:v.mmsi||'—',nm:v.name||'',sog:v.speedOverGround!=null?v.speedOverGround.toFixed(1)+' kn':'—',cog:v.courseOverGround!=null?v.courseOverGround.toFixed(1)+'°':'—',lat,lon};
-      seenBW.add(key);
-      if(shipBBTrack[key]){shipBBTrack[key].position=pos;shipBBTrack[key].rotation=rot;shipBBTrack[key].show=true;shipBBTrack[key]._wv=wv;}
-      else{const bb=prims.shipBB.add({position:pos,image:shipIcn,width:9,height:9,rotation:rot,alignedAxis:Cesium.Cartesian3.ZERO,scaleByDistance:new Cesium.NearFarScalar(1e4,1.2,5e6,.2)});bb._wv=wv;shipBBTrack[key]=bb;}
-      const bb=shipBBTrack[key];if(!bb._trail)bb._trail=[];bb._trail.push([lon,lat,50]);if(bb._trail.length>8)bb._trail.shift();
-      n++;
-    });
-    setSS('bw','ok');log('AIS','BarentsWatch: '+n+' vessels');viewer.scene.requestRender();
-  }catch(e){setSS('bw','err');log('AIS','BarentsWatch: '+e.message);}
-}
+// ── BarentsWatch AIS: requires OAuth2 — not usable in pure frontend ──
+// Removed to avoid permanent error state
 
 // ── CCTV ──
 async function fetchCCTV(){
@@ -591,11 +620,11 @@ async function fetchCCTV(){
   try{log('CCTV','TfL...');const r=await fetch('https://api.tfl.gov.uk/Place/Type/JamCam');if(!r.ok)throw new Error('');(await r.json()).forEach(c=>{const im=(c.additionalProperties||[]).find(p=>p.key==='imageUrl');const vid=(c.additionalProperties||[]).find(p=>p.key==='videoUrl');if(c.lat&&c.lon)cams.push({id:c.id,name:c.commonName||c.id,lat:c.lat,lon:c.lon,img:im?im.value:null,video:vid?vid.value:null,src:'TfL'});});setSS('tfl','ok');log('CCTV','TfL: '+cams.length);}catch(e){setSS('tfl','err');}
   try{log('CCTV','Autobahn...');const lr=await fetch('https://verkehr.autobahn.de/o/autobahn/');if(!lr.ok)throw new Error('');
     for(const rd of((await lr.json()).roads||[])){try{const wr=await fetch(`https://verkehr.autobahn.de/o/autobahn/${rd}/services/webcam`);if(!wr.ok)continue;((await wr.json()).webcam||[]).forEach(wc=>{const co=wc.coordinate;if(co?.lat&&co?.long)cams.push({id:wc.identifier||'ab-'+Math.random().toString(36).substr(2,5),name:wc.title||rd,lat:+co.lat,lon:+co.long,img:wc.imageurl||null,src:'AB '+rd});});}catch(e){}}setSS('ab','ok');}catch(e){setSS('ab','err');}
-  try{log('CCTV','Digitraffic FI...');const dr=await fetch('https://tie.digitraffic.fi/api/v3/metadata/camera-stations');if(!dr.ok)throw new Error('HTTP '+dr.status);const dd=await dr.json();let dtN=0;(dd.cameraStations||[]).forEach(cs=>{const lat=cs.wgs84Lat||cs.coordinates?.y,lon=cs.wgs84Long||cs.coordinates?.x;if(!lat||!lon)return;(cs.cameraPresets||[]).forEach(cp=>{if(cp.imageUrl){cams.push({id:'dtfi-'+cp.id,name:(cs.names?.en||cs.names?.fi||cp.id),lat:+lat,lon:+lon,img:cp.imageUrl,src:'Digitraffic FI'});dtN++;}});});setSS('dtfi','ok');log('CCTV','Digitraffic FI: '+dtN);}catch(e){setSS('dtfi','err');log('CCTV','Digitraffic FI: '+e.message);}
-  try{log('CCTV','DriveBC...');const br=await fetch('https://www.drivebc.ca/api/v1/webcam/?format=json&limit=500');if(!br.ok)throw new Error('HTTP '+br.status);const bd=await br.json();let dbN=0;(bd.results||bd).forEach(wc=>{if(wc.location?.coordinates&&wc.images?.[0]?.url){cams.push({id:'dbc-'+wc.id,name:wc.name||('BC-'+wc.id),lat:wc.location.coordinates[1],lon:wc.location.coordinates[0],img:wc.images[0].url,src:'DriveBC CA'});dbN++;}});setSS('drivebc','ok');log('CCTV','DriveBC: '+dbN);}catch(e){setSS('drivebc','err');log('CCTV','DriveBC: '+e.message);}
+  try{log('CCTV','Digitraffic FI...');const dr=await fetch('https://tie.digitraffic.fi/api/v3/metadata/camera-stations',{headers:{'Digitraffic-User':'WorldView/1.0'}});if(!dr.ok)throw new Error('HTTP '+dr.status);const dd=await dr.json();let dtN=0;(dd.cameraStations||[]).forEach(cs=>{const lat=cs.wgs84Lat??cs.latitude??cs.coordinates?.y,lon=cs.wgs84Long??cs.longitude??cs.coordinates?.x;if(!lat||!lon||Math.abs(lat)<1||Math.abs(lon)<1)return;(cs.cameraPresets||[]).forEach(cp=>{const img=cp.imageUrl||cp.stillImageUrl;if(img){cams.push({id:'dtfi-'+cp.id,name:(cs.names?.en||cs.names?.fi||cs.name||cp.id),lat:+lat,lon:+lon,img,src:'Digitraffic FI'});dtN++;}});});setSS('dtfi','ok');log('CCTV','Digitraffic FI: '+dtN);}catch(e){setSS('dtfi','err');log('CCTV','Digitraffic FI: '+e.message);}
+  try{log('CCTV','DriveBC...');const br=await fetch('https://www.drivebc.ca/api/v1/webcam/?format=json&limit=500');if(!br.ok)throw new Error('HTTP '+br.status);const bd=await br.json();let dbN=0;(bd.results||[]).forEach(wc=>{const coords=wc.location?.coordinates;const img=wc.image_url||wc.still_image_url||(wc.images?.[0]?.url)||(wc.images?.[0]?.src);const name=wc.name||wc.highway_description||wc.highway||('BC-'+wc.id);if(coords?.length>=2&&img){cams.push({id:'dbc-'+wc.id,name,lat:coords[1],lon:coords[0],img,src:'DriveBC CA'});dbN++;}});setSS('drivebc','ok');log('CCTV','DriveBC: '+dbN);}catch(e){setSS('drivebc','err');log('CCTV','DriveBC: '+e.message);}
   prims.camPts.removeAll();
   cams.forEach(c=>{const pt=prims.camPts.add({position:Cesium.Cartesian3.fromDegrees(c.lon,c.lat,100),pixelSize:5,color:Cesium.Color.fromCssColorString('#ff3344')});pt._wv={t:'cam',id:c.id};});
-  document.getElementById('c-cam').textContent=cams.length;document.getElementById('b-cam').textContent=cams.length;log('CCTV',cams.length+' cams');
+  document.getElementById('c-cam').textContent=cams.length;log('CCTV',cams.length+' cams');
 }
 
 // ═══ ANIMATION ═══
@@ -618,8 +647,11 @@ function interpAC(){
     const lon2=lon1+Math.atan2(Math.sin(b)*Math.sin(ad)*Math.cos(lat1),Math.cos(ad)-Math.sin(lat1)*Math.sin(lat2));
     if(isNaN(lat2)||isNaN(lon2))continue;
     const altM=(a.alt_baro==='ground'?0:(a.alt_baro||0)*0.3048)||100;
-    bb.position=Cesium.Cartesian3.fromDegrees(lon2*R2D,lat2*R2D,altM);
+    const iLon=lon2*R2D,iLat=lat2*R2D;
+    bb.position=Cesium.Cartesian3.fromDegrees(iLon,iLat,altM);
+    a._drPos=[iLon,iLat,altM]; // store for trail tip extension
   }
+  updateTrails();
   viewer.scene.requestRender();
 }
 function startAnim(){
