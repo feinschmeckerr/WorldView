@@ -271,7 +271,9 @@ function startFollow(getPosFn,getHdgFn){
   stopFollow();
   if(viewer)_followDist=Math.max(5e4,Math.min(viewer.camera.positionCartographic.height,8e6));
   _followGetPos=getPosFn;_followGetHdg=getHdgFn||null;
-  let _lastPos=Cesium.Cartesian3.ZERO;
+  const initPos=getPosFn();
+  if(!initPos){notify('OBJECT NOT FOUND','warn');return;}
+  let _lastPos=Cesium.Cartesian3.fromDegrees(initPos[0],initPos[1],initPos[2]);
   _trackedEntity=viewer.entities.add({
     position:new Cesium.CallbackProperty(()=>{
       const p=_followGetPos?.();
@@ -280,11 +282,17 @@ function startFollow(getPosFn,getHdgFn){
     },false),
     point:{pixelSize:0,color:Cesium.Color.TRANSPARENT}
   });
-  viewer.trackedEntity=_trackedEntity;
-  // Orient camera behind object facing direction of travel
   const hdg=_followGetHdg?.()??0;
-  viewer.zoomTo(_trackedEntity,new Cesium.HeadingPitchRange(
-    Cesium.Math.toRadians((hdg+180)%360),Cesium.Math.toRadians(-25),_followDist));
+  const hpr=new Cesium.HeadingPitchRange(
+    Cesium.Math.toRadians((hdg+180)%360),  // camera behind object, looking forward
+    Cesium.Math.toRadians(-25),             // slight downward angle
+    _followDist
+  );
+  // Fly to the entity FIRST (establishes correct camera position), THEN lock tracking.
+  // If trackedEntity were set first, Cesium would immediately override the flyTo offset.
+  viewer.flyTo(_trackedEntity,{offset:hpr,duration:1.5}).then(()=>{
+    if(_trackedEntity)viewer.trackedEntity=_trackedEntity;
+  });
 }
 function stopFollow(){
   if(viewer){
@@ -404,7 +412,7 @@ function initGlobe(){
   //   Ctrl + left drag      = tilt on desktop
   ctrl.zoomEventTypes=[Cesium.CameraEventType.WHEEL,Cesium.CameraEventType.PINCH];
   ctrl.rotateEventTypes=[Cesium.CameraEventType.LEFT_DRAG];
-  ctrl.tiltEventTypes=[Cesium.CameraEventType.MIDDLE_DRAG,
+  ctrl.tiltEventTypes=[Cesium.CameraEventType.MIDDLE_DRAG,Cesium.CameraEventType.PINCH,
     {eventType:Cesium.CameraEventType.LEFT_DRAG,modifier:Cesium.KeyboardEventModifier.CTRL}];
   ctrl.inertiaSpin=0.88;       // smooth panning inertia
   ctrl.inertiaZoom=0.7;        // reduced zoom inertia — stops quickly, no "zoom forever"
@@ -816,7 +824,7 @@ async function fetchShips(){
 // ── CCTV ──
 async function fetchCCTV(){
   cams.length=0;
-  try{log('CCTV','TfL...');const r=await fetch('https://api.tfl.gov.uk/Place/Type/JamCam');if(!r.ok)throw new Error('');(await r.json()).forEach(c=>{const im=(c.additionalProperties||[]).find(p=>p.key==='imageUrl');const vid=(c.additionalProperties||[]).find(p=>p.key==='videoUrl');if(c.lat&&c.lon)cams.push({id:c.id,name:c.commonName||c.id,lat:c.lat,lon:c.lon,img:im?im.value:null,src:'TfL'});});setSS('tfl','ok');log('CCTV','TfL: '+cams.length);}catch(e){setSS('tfl','err');}
+  try{log('CCTV','TfL...');const r=await fetch('https://api.tfl.gov.uk/Place/Type/JamCam');if(!r.ok)throw new Error('');(await r.json()).forEach(c=>{const im=(c.additionalProperties||[]).find(p=>p.key==='imageUrl');const vid=(c.additionalProperties||[]).find(p=>p.key==='videoUrl');if(c.lat&&c.lon)cams.push({id:c.id,name:c.commonName||c.id,lat:c.lat,lon:c.lon,img:im?im.value:null,video:vid?vid.value:null,src:'TfL'});});setSS('tfl','ok');log('CCTV','TfL: '+cams.length);}catch(e){setSS('tfl','err');}
   try{log('CCTV','Autobahn...');const lr=await fetch('https://verkehr.autobahn.de/o/autobahn/');if(!lr.ok)throw new Error('');
     for(const rd of((await lr.json()).roads||[])){try{const wr=await fetch(`https://verkehr.autobahn.de/o/autobahn/${rd}/services/webcam`);if(!wr.ok)continue;((await wr.json()).webcam||[]).forEach(wc=>{const co=wc.coordinate;if(co?.lat&&co?.long)cams.push({id:wc.identifier||'ab-'+Math.random().toString(36).substr(2,5),name:wc.title||rd,lat:+co.lat,lon:+co.long,img:wc.imageurl||null,src:'AB '+rd});});}catch(e){}}setSS('ab','ok');}catch(e){setSS('ab','err');}
   try{log('CCTV','Digitraffic FI...');
