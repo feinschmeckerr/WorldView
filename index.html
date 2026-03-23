@@ -118,7 +118,7 @@ body.mode-flir::after{content:'';position:fixed;inset:0;z-index:9;background:rad
   #topbar{padding:0 8px}
   .logo{font-size:11px;letter-spacing:2px}
   .logo span{display:none}
-  .coords-sep,.coords-de{display:none}
+  .coords-sep,.coords-de,.coords-wx{display:none}
   .coords{font-size:9px;gap:8px}
   .coords .lb{display:none}
   #rp,#sp{width:calc(100vw - 12px);left:6px;right:6px;top:48px;max-height:45vh}
@@ -155,7 +155,7 @@ body.mode-flir::after{content:'';position:fixed;inset:0;z-index:9;background:rad
   <div id="ch"><div class="cc ctl"></div><div class="cc ctr"></div><div class="cc cbl"></div><div class="cc cbr"></div><div class="cdt"></div></div>
   <div id="topbar">
     <div class="logo">WORLDVIEW<span>SPATIAL INTELLIGENCE</span></div>
-    <div class="coords"><div><span class="lb">LAT</span><span id="h-lat">0.0000</span></div><div><span class="lb">LON</span><span id="h-lon">0.0000</span></div><div><span class="lb">ALT</span><span id="h-alt">—</span></div><div><span class="lb">UTC</span><span id="h-utc">00:00:00</span></div><div class="coords-sep">·</div><div class="coords-de"><span class="lb">DE</span><span id="h-loc">—</span></div></div>
+    <div class="coords"><div><span class="lb">LAT</span><span id="h-lat">0.0000</span></div><div><span class="lb">LON</span><span id="h-lon">0.0000</span></div><div><span class="lb">ALT</span><span id="h-alt">—</span></div><div><span class="lb">UTC</span><span id="h-utc">00:00:00</span></div><div class="coords-sep">·</div><div class="coords-de"><span class="lb">DE</span><span id="h-loc">—</span></div><div class="coords-sep">·</div><div class="coords-wx"><span class="lb">WX</span><span id="h-wx">—</span></div></div>
   </div>
   <div id="rp"><div class="rph"><span class="rpt" id="rp-t">DETAILS</span><div class="rph-btns"><button class="rpc rpf" id="rp-follow" onclick="toggleFollow()" style="display:none">⊕ TRACK</button><button class="rpc" onclick="closeD()">✕</button></div></div><div id="rp-c"></div></div>
   <div id="sp"><div class="rph"><span class="rpt" id="sp-t">SATELLITE TRACK</span><button class="rpc" onclick="closeSP()">✕</button></div><div id="sp-c"></div><button class="sp-btn" id="sp-orb-btn" onclick="toggleOrbitPath()">⬡ SHOW ORBIT PATH</button><button class="sp-btn" id="sp-follow-btn" onclick="toggleFollowSat()">⊕ TRACK SATELLITE</button></div>
@@ -175,6 +175,8 @@ body.mode-flir::after{content:'';position:fixed;inset:0;z-index:9;background:rad
         <div class="sr" id="s-ab"><span class="sd ld"></span>Autobahn GmbH<span class="sts" id="t-ab">—</span></div>
         <div class="sr" id="s-dtfi"><span class="sd ld"></span>Digitraffic FI Cam<span class="sts" id="t-dtfi">—</span></div>
         <div class="sr" id="s-drivebc"><span class="sd ld"></span>BC Open511<span class="sts" id="t-drivebc">—</span></div>
+        <div class="sr" id="s-bvg"><span class="sd ld"></span>BVG Transit<span class="sts" id="t-bvg">—</span></div>
+        <div class="sr" id="s-nina"><span class="sd ld"></span>NINA Warnungen<span class="sts" id="t-nina">—</span></div>
       </div>
     </div>
     <div id="dock-bar">
@@ -194,6 +196,7 @@ body.mode-flir::after{content:'';position:fixed;inset:0;z-index:9;background:rad
         <div class="lc" data-ly="cctv" onclick="tgl('cctv')"><span class="lc-ic">📷</span><span class="lc-nm">CCTV</span><span class="lc-ct" id="c-cam">0</span></div>
         <div class="lc" data-ly="zones" onclick="tgl('zones')"><span class="lc-ic">⚠</span><span class="lc-nm">ZONES</span><span class="lc-ct" id="c-zn">—</span></div>
         <div class="lc" data-ly="traffic" onclick="tgl('traffic')"><span class="lc-ic">🚗</span><span class="lc-nm">TRAFFIC</span><span class="lc-ct" id="c-trf">—</span></div>
+        <div class="lc" data-ly="bvg" onclick="tgl('bvg')"><span class="lc-ic">🚌</span><span class="lc-nm">TRANSIT</span><span class="lc-ct" id="c-bvg">0</span></div>
       </div>
       <div class="dock-status"><div class="pd"></div><div id="stx">INITIALIZING...</div></div>
     </div>
@@ -207,7 +210,7 @@ body.mode-flir::after{content:'';position:fixed;inset:0;z-index:9;background:rad
 const D2R=Math.PI/180,R2D=180/Math.PI,ER=6371;
 
 // ── Util ──
-const _logMeta={ac:{ic:'✈',cl:'#00ff88'},mil:{ic:'⚔',cl:'#ff3344'},ais:{ic:'🚢',cl:'#00ddff'},tle:{ic:'🛰',cl:'#ffffcc'},sat:{ic:'🛰',cl:'#ffffcc'},opensky:{ic:'✈',cl:'#88ffaa'},cctv:{ic:'📷',cl:'#ffaa00'},tfl:{ic:'📷',cl:'#ffaa00'},ab:{ic:'📷',cl:'#ffaa00'},dtfi:{ic:'📷',cl:'#ffaa00'},drivebc:{ic:'📷',cl:'#ffaa00'},map:{ic:'🌍',cl:'rgba(0,255,136,.55)'},sys:{ic:'⚙',cl:'rgba(0,255,136,.5)'}};
+const _logMeta={ac:{ic:'✈',cl:'#00ff88'},mil:{ic:'⚔',cl:'#ff3344'},ais:{ic:'🚢',cl:'#00ddff'},tle:{ic:'🛰',cl:'#ffffcc'},sat:{ic:'🛰',cl:'#ffffcc'},opensky:{ic:'✈',cl:'#88ffaa'},cctv:{ic:'📷',cl:'#ffaa00'},tfl:{ic:'📷',cl:'#ffaa00'},ab:{ic:'📷',cl:'#ffaa00'},dtfi:{ic:'📷',cl:'#ffaa00'},drivebc:{ic:'📷',cl:'#ffaa00'},bvg:{ic:'🚌',cl:'#00aaff'},nina:{ic:'⚠',cl:'#ff4444'},wx:{ic:'🌤',cl:'#aaddff'},trf:{ic:'🚗',cl:'#ffdd55'},map:{ic:'🌍',cl:'rgba(0,255,136,.55)'},sys:{ic:'⚙',cl:'rgba(0,255,136,.5)'}};
 function log(s,m){
   const ts=new Date().toISOString().substr(11,8);
   const el=document.getElementById('dl');
@@ -250,7 +253,7 @@ document.addEventListener('keydown',e=>{if(e.key==='1')setMode('normal');else if
 
 // ── State ──
 let viewer;
-const layers={aircraft:1,military:1,satellites:1,ships:1,cctv:1,zones:1,traffic:1};
+const layers={aircraft:1,military:1,satellites:1,ships:1,cctv:1,zones:1,traffic:1,bvg:1};
 const prims={};  // named primitive references
 const satRecs=[];
 const cams=[];
@@ -260,6 +263,7 @@ const acBBTrack={},milBBTrack={},shipBBTrack={};
 const trailEntities={};  // Entity-based trail map hex→entity (reliable in Cesium 1.125)
 const shipTrailPool=[];  // Pre-allocated PolylineCollection pool (ships)
 const carPool=[];  // Traffic flow car billboard pool
+const bvgPool=[];  // BVG transit vehicle billboard pool
 let osmRoads=[],osmRoadSpeeds=[],_osmBbox='',_osmFetchTs=0; // OSM road data + speed factors
 let trailLineColl,shipTrailLineColl,satPtCol,_lastPick=0;
 let satTrackIdx=null,satTrackInt=null,orbitPathDS=null,showOrbit=false;
@@ -335,6 +339,7 @@ function tgl(n){layers[n]=layers[n]?0:1;const el=document.querySelector(`.lc[dat
   if(n==='aircraft'&&trailLineColl)trailLineColl.show=sh;
   if(n==='ships'&&shipTrailLineColl)shipTrailLineColl.show=sh;
   if(n==='traffic'&&prims.trafficBB){prims.trafficBB.show=sh;if(!sh)carPool.forEach(c=>{try{c.bb.show=false;}catch(e){}});}
+  if(n==='bvg'&&prims.bvgBB){prims.bvgBB.show=sh;}
   if(viewer)viewer.scene.requestRender();
 }
 
@@ -374,6 +379,28 @@ const shipIcn=makeIcon((x,s)=>{const r=s/2-1;x.translate(s/2,s/2);
 // Satellite and CCTV — emoji (static, no rotation)
 const satIcn=makeEmojiIcon('🛰',26,'#ffffaa');
 const camIcn=makeEmojiIcon('📷',22,'#ff6655');
+
+// BVG transit dot icons — colored circles per product type (BVG official colors)
+function makeDotIcon(col,sz){
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  const c=document.createElement('canvas');c.width=sz*dpr;c.height=sz*dpr;
+  const x=c.getContext('2d');x.scale(dpr,dpr);
+  x.shadowColor='rgba(0,0,0,0.5)';x.shadowBlur=3;
+  x.fillStyle=col;x.beginPath();x.arc(sz/2,sz/2,sz/2-1,0,Math.PI*2);x.fill();
+  x.shadowBlur=0;x.strokeStyle='rgba(255,255,255,0.75)';x.lineWidth=1.5;x.stroke();
+  // Inner letter area — small white dot for visibility
+  x.fillStyle='rgba(255,255,255,0.25)';x.beginPath();x.arc(sz/2,sz/2,sz/4,0,Math.PI*2);x.fill();
+  return c;
+}
+const BVG_ICONS={
+  suburban: makeDotIcon('#009b4e',13),  // S-Bahn green
+  subway:   makeDotIcon('#1765af',13),  // U-Bahn blue
+  tram:     makeDotIcon('#be1414',11),  // Tram red
+  bus:      makeDotIcon('#7a3fa5',11),  // Bus purple (BVG brand)
+  ferry:    makeDotIcon('#009bd5',12),  // Ferry cyan
+  regional: makeDotIcon('#607372',12),  // Regional grey
+  express:  makeDotIcon('#ec0016',14),  // Express/ICE red
+};
 
 // Car icon factory — top-down silhouette 8×14px, nose at top, rotated via UNIT_Z
 function makeCarIcon(col){
@@ -460,6 +487,13 @@ function initGlobe(){
   const _sc=new Cesium.Color(0,0.867,1,0.25);
   for(let i=0;i<40;i++)shipTrailPool.push(shipTrailLineColl.add({positions:[Cesium.Cartesian3.ZERO,Cesium.Cartesian3.fromDegrees(0,1,50)],width:1.2,material:Cesium.Material.fromType('Color',{color:_sc}),show:false}));
 
+  // BVG transit vehicle pool — 600 pre-allocated slots, icons assigned at fetch time
+  prims.bvgBB=viewer.scene.primitives.add(new Cesium.BillboardCollection());
+  for(let i=0;i<600;i++){
+    const bb=prims.bvgBB.add({position:Cesium.Cartesian3.fromDegrees(13.4,52.5,50),image:BVG_ICONS.bus,width:11,height:11,show:false,scaleByDistance:new Cesium.NearFarScalar(500,2.0,3e5,0.5)});
+    bvgPool.push(bb);
+  }
+
   // Traffic flow car pool
   initTraffic();
 
@@ -493,6 +527,7 @@ function initGlobe(){
     if(pk?.primitive?._wv){const d=pk.primitive._wv;let t='';
       if(d.t==='ac')t=`✈ ${d.cs||d.hex} ${d.type!=='—'?d.type:''} ${d.alt}`;else if(d.t==='mil')t=`⚔ MIL ${d.cs} ${d.type!=='—'?d.type:''} ${d.alt}`;
       else if(d.t==='sat')t=`🛰 ${d.nm}`;else if(d.t==='shp')t=`🚢 ${d.nm||d.mmsi}`;
+      else if(d.t==='bvg')t=`🚌 ${d.line} → ${d.dir}`;
       else if(d.t==='cam')t=`📷 ${(cams.find(c=>c.id===d.id)||{}).name||'CCTV'}`;
       tt.style.display=t?'block':'none';if(t){tt.style.left=(mv.endPosition.x+16)+'px';tt.style.top=(mv.endPosition.y-16)+'px';tt.textContent=t;}viewer.canvas.style.cursor=t?'pointer':'';
     }else{tt.style.display='none';viewer.canvas.style.cursor='';}
@@ -516,6 +551,9 @@ function initGlobe(){
       const getPos=()=>{const wv=bb?._wv;if(!wv)return null;return wv._drPos?[wv._drPos[0],wv._drPos[1],50]:[wv.lon,wv.lat,50];};
       const getHdg=()=>{const wv=bb?._wv;return wv?._cog??0;};
       showD('VESSEL',getRows()??[],getRows,getPos,getHdg);
+    }else if(d.t==='bvg'){
+      const prodNames={suburban:'S-Bahn',subway:'U-Bahn',tram:'Tram',bus:'Bus',ferry:'Fähre',regional:'Regional',express:'Express'};
+      showD('BVG TRANSIT',[['LINIE',d.line||'—'],['TYP',prodNames[d.prod]||d.prod||'—'],['RICHTUNG',d.dir||'—']],()=>[['LINIE',d.line||'—'],['TYP',prodNames[d.prod]||d.prod||'—'],['RICHTUNG',d.dir||'—']],null,null);
     }else if(d.t==='cam'){const cam=cams.find(c=>c.id===d.id);if(cam)showC(cam);}
   },Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
@@ -527,8 +565,12 @@ function initGlobe(){
 function startFeeds(){fetchAC();fetchSats();fetchShips();fetchCCTV();startAnim();
   setInterval(fetchAC,8000);setInterval(fetchShips,60000);setInterval(fetchCCTV,180000);setInterval(fetchSats,3600000);
   setInterval(()=>{updateShipTrails();},15000);
-  setTimeout(fetchOpenSky,8000);setInterval(fetchOpenSky,120000); // 2min — respect rate limit
-  log('SYS','Feeds: AC 8s (51 regions) + OpenSky 30s');}
+  setTimeout(fetchOpenSky,8000);setInterval(fetchOpenSky,120000);
+  // Berlin/Brandenburg feeds
+  setTimeout(fetchBVG,5000);setInterval(fetchBVG,30000);
+  setTimeout(fetchWeather,3000);setInterval(fetchWeather,600000);
+  setTimeout(fetchNINA,10000);setInterval(fetchNINA,300000);
+  log('SYS','Feeds: AC 8s · BVG 30s · WX 10min · NINA 5min');}
 
 // ── Aircraft: All regions every 8s (no batching — airplanes.live has no rate limit) ──
 const AC_REGS=[
@@ -861,7 +903,16 @@ const ROADS=[
   [[31.242,30.062],[30.988,30.220],[30.667,30.511],[30.396,30.909],[29.997,31.116],[29.920,31.211]], // EG N1 Cairo→Alexandria
   [[-7.589,33.586],[-7.497,33.733],[-7.371,33.859],[-7.146,34.013],[-6.858,34.020]], // MA A1 Casablanca→Rabat
   [[151.209,-33.870],[150.763,-34.048],[150.165,-34.401],[149.784,-34.716],[149.181,-35.306],[149.124,-35.307]], // AU Hume Hwy Sydney→Canberra
-  [[-46.633,-23.548],[-46.620,-23.790],[-46.556,-24.056],[-46.296,-24.379],[-46.008,-24.701],[-49.281,-25.432]]  // BR BR-116 SP→Curitiba
+  [[-46.633,-23.548],[-46.620,-23.790],[-46.556,-24.056],[-46.296,-24.379],[-46.008,-24.701],[-49.281,-25.432]], // BR BR-116 SP→Curitiba
+  // Berlin & Brandenburg
+  [[12.878,52.567],[13.060,52.680],[13.190,52.760],[13.450,52.756],[13.667,52.677],[13.720,52.500],[13.795,52.230],[13.630,52.205],[13.502,52.370],[13.350,52.390],[13.156,52.254],[13.000,52.310],[12.878,52.567]], // A10 Berliner Ring (complete)
+  [[13.247,52.519],[13.263,52.513],[13.280,52.511],[13.350,52.510],[13.416,52.497],[13.447,52.481],[13.455,52.452]], // A100 Stadtring Berlin
+  [[13.272,52.510],[13.205,52.450],[13.185,52.380],[13.156,52.254]], // A115 AVUS + Dreieck Nuthetal
+  [[13.247,52.519],[13.213,52.548],[13.194,52.600],[13.186,52.680],[13.189,52.760]], // A111 Berlin→Dreieck Oranienburg
+  [[13.459,52.448],[13.487,52.410],[13.501,52.373]], // A113 Neukölln→Schönefeld
+  [[12.878,52.566],[12.700,52.620],[12.467,52.688],[12.200,52.780],[11.900,53.000],[11.620,53.380],[10.750,53.470]], // A24 Berlin→Hamburg
+  [[12.770,52.366],[12.400,52.270],[12.050,52.180],[11.680,52.127]], // A2 Berlin→Magdeburg
+  [[13.156,52.254],[12.820,52.118],[12.380,51.830],[12.230,51.600],[12.380,51.340]]  // A9 Berlin→Leipzig
 ];
 
 // Returns [lon, lat, heading°] at parameter t (0–1) along segment
@@ -1052,6 +1103,80 @@ async function fetchCCTV(){
   prims.camPts.removeAll();
   cams.forEach(c=>{const pt=prims.camPts.add({position:Cesium.Cartesian3.fromDegrees(c.lon,c.lat,100),image:camIcn,width:16,height:16,scaleByDistance:new Cesium.NearFarScalar(1e3,1.2,3e6,.25)});pt._wv={t:'cam',id:c.id};});
   document.getElementById('c-cam').textContent=cams.length;log('CCTV',cams.length+' cams');
+}
+
+// ── BVG Live Transit (Berlin & Brandenburg) ──
+// Fetches real-time vehicle positions from transport.rest BVG HAFAS radar.
+// Only active when viewport is centred near Berlin; uses billboard pool for zero-GC updates.
+async function fetchBVG(){
+  if(!layers.bvg||!viewer)return;
+  const rect=viewer.camera.computeViewRectangle();if(!rect)return;
+  const R=Cesium.Math.toDegrees;
+  const cLat=(R(rect.north)+R(rect.south))/2,cLon=(R(rect.east)+R(rect.west))/2;
+  // Only fetch when viewport centre is within ~500 km of Berlin
+  if(Math.abs(cLat-52.5)>5||Math.abs(cLon-13.4)>7){bvgPool.forEach(b=>b.show=false);return;}
+  // Clamp bbox to Berlin/Brandenburg bounds to keep request small
+  const n=Math.min(R(rect.north),54.5).toFixed(4),s=Math.max(R(rect.south),51.0).toFixed(4);
+  const e=Math.min(R(rect.east),15.5).toFixed(4), w=Math.max(R(rect.west),11.0).toFixed(4);
+  try{
+    log('bvg','BVG radar...');
+    const r=await fetch(`https://v6.bvg.transport.rest/radar?north=${n}&west=${w}&south=${s}&east=${e}&results=500&duration=30&frames=3`);
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const vehicles=await r.json();
+    let ci=0;
+    for(const v of(Array.isArray(vehicles)?vehicles:[])){
+      if(ci>=bvgPool.length)break;
+      const loc=v.location;if(!loc?.latitude||!loc?.longitude)continue;
+      const prod=v.line?.product||'bus';
+      const icn=BVG_ICONS[prod]||BVG_ICONS.bus;
+      const sz=prod==='suburban'||prod==='subway'||prod==='express'?13:11;
+      const bb=bvgPool[ci];
+      bb.position=Cesium.Cartesian3.fromDegrees(loc.longitude,loc.latitude,50);
+      bb.image=icn;bb.width=sz;bb.height=sz;
+      bb.show=true;
+      bb._wv={t:'bvg',line:v.line?.name||'?',prod,dir:v.direction||''};
+      ci++;
+    }
+    for(let i=ci;i<bvgPool.length;i++)bvgPool[i].show=false;
+    document.getElementById('c-bvg').textContent=ci;
+    setSS('bvg','ok');log('bvg',ci+' vehicles ('+['suburban','subway','tram','bus'].map(p=>p+':'+vehicles.filter(v=>v.line?.product===p).length).join(' ')+')');
+  }catch(e){setSS('bvg','err');log('bvg','Error: '+e.message);}
+}
+
+// ── Open-Meteo Weather (Berlin) ──
+async function fetchWeather(){
+  try{
+    const r=await fetch('https://api.open-meteo.com/v1/forecast?latitude=52.52&longitude=13.405&current=temperature_2m,wind_speed_10m,wind_direction_10m,weather_code,precipitation&timezone=Europe/Berlin&wind_speed_unit=kmh');
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const d=await r.json();const c=d.current;if(!c)return;
+    const wmo=c.weather_code||0;
+    const ic=wmo===0?'☀️':wmo<=2?'⛅':wmo===3?'☁️':wmo<=48?'🌫️':wmo<=67?'🌧️':wmo<=77?'❄️':wmo<=82?'🌦️':'⛈️';
+    const temp=c.temperature_2m!=null?Math.round(c.temperature_2m)+'°C':'?';
+    const wind=c.wind_speed_10m!=null?Math.round(c.wind_speed_10m)+' km/h':'?';
+    document.getElementById('h-wx').textContent=`${ic} ${temp} · ${wind}`;
+    log('wx','Berlin: '+temp+' '+ic+' Wind '+wind);
+  }catch(e){log('wx','Weather error: '+e.message);}
+}
+
+// ── NINA Bevölkerungsschutz-Warnungen (Berlin + Brandenburg) ──
+async function fetchNINA(){
+  try{
+    const [rb,rbb]=await Promise.all([
+      fetch('https://nina.api.bund.de/v2/dashboard/110000000000/warnings.json'),
+      fetch('https://nina.api.bund.de/v2/dashboard/120000000000/warnings.json')
+    ]);
+    const all=[];
+    if(rb.ok)(await rb.json()).forEach(w=>all.push({...w,_region:'Berlin'}));
+    if(rbb.ok)(await rbb.json()).forEach(w=>all.push({...w,_region:'Brandenburg'}));
+    if(all.length){
+      all.forEach(w=>{
+        const sev=w.severity||'';const isSevere=sev==='Extreme'||sev==='Severe';
+        notify(`⚠ ${w._region}: ${w.headline||w.event||'Warnung'}`,isSevere?'error':'warn');
+        log('nina',w._region+': '+(w.headline||w.event||'Meldung')+' ['+sev+']');
+      });
+    }
+    setSS('nina','ok');log('nina','BB/BBG: '+(all.length||0)+' aktive Warnung(en)');
+  }catch(e){setSS('nina','err');log('nina','NINA error: '+e.message);}
 }
 
 // ═══ ANIMATION ═══
