@@ -14,17 +14,17 @@
 *{margin:0;padding:0;box-sizing:border-box}html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:var(--f);color:var(--g);touch-action:none}
 #globe{position:absolute;inset:0;z-index:1}
 .cesium-viewer-bottom,.cesium-viewer-toolbar,.cesium-viewer-fullscreenContainer,.cesium-credit-logoContainer,.cesium-credit-expand-link,.cesium-credit-textContainer,.cesium-widget-credits{display:none!important}
-/* ── NVG: green phosphor night vision with scanlines + vignette ── */
-body.mode-nvg #globe{filter:saturate(0) brightness(.45) contrast(3) sepia(1) hue-rotate(80deg) brightness(2.2)}
-body.mode-nvg::after{content:'';position:fixed;inset:0;z-index:9;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,30,0,.18) 3px,rgba(0,30,0,.18) 4px),radial-gradient(ellipse at center,transparent 52%,rgba(0,0,0,.88) 100%);pointer-events:none}
-/* ── FLIR: black-hot thermal with warm edge glow ── */
-body.mode-flir #globe{filter:saturate(0) contrast(4) brightness(.72) invert(1) sepia(.4) hue-rotate(-18deg)}
-body.mode-flir::after{content:'';position:fixed;inset:0;z-index:9;background:radial-gradient(ellipse at center,transparent 40%,rgba(140,50,0,.32) 100%);pointer-events:none}
+/* ── NVG: classic green phosphor — single clean filter chain ── */
+body.mode-nvg #globe{filter:saturate(0) sepia(1) hue-rotate(82deg) brightness(1.6) contrast(1.5)}
+body.mode-nvg::after{content:'';position:fixed;inset:0;z-index:9;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,24,0,.07) 2px,rgba(0,24,0,.07) 3px),radial-gradient(ellipse at center,transparent 56%,rgba(0,0,0,.72) 100%);pointer-events:none}
+/* ── FLIR: white-hot thermal — desaturate, high contrast, invert ── */
+body.mode-flir #globe{filter:saturate(0) contrast(3.5) brightness(.82) invert(1)}
+body.mode-flir::after{content:'';position:fixed;inset:0;z-index:9;background:radial-gradient(ellipse at center,transparent 48%,rgba(0,0,0,.55) 100%);pointer-events:none}
 #hud{position:absolute;inset:0;z-index:10;pointer-events:none}#hud>*{pointer-events:auto}
 /* ── Top bar ── */
 #topbar{position:absolute;top:0;left:0;right:0;height:44px;background:linear-gradient(180deg,rgba(0,0,0,.96),rgba(0,0,0,.7));border-bottom:1px solid var(--brd);display:flex;align-items:center;justify-content:space-between;padding:0 14px;z-index:100}
 .logo{font-family:var(--ft);font-size:14px;font-weight:900;letter-spacing:4px;text-shadow:0 0 20px var(--gd)}.logo span{color:var(--gd);font-weight:400;font-size:9px;letter-spacing:2px;margin-left:8px}
-.coords{font-size:11px;display:flex;gap:16px;opacity:.85}.coords .lb{color:var(--gd);font-size:9px;margin-right:3px}
+.coords{font-size:11px;display:flex;gap:10px;align-items:center;opacity:.85}.coords .lb{color:var(--gd);font-size:9px;margin-right:2px}.coords-sep{color:var(--brd);font-size:14px;line-height:1;margin:0 2px}
 /* ── Detail panels (right side) ── */
 #rp{position:absolute;top:52px;right:8px;width:310px;background:var(--bg);border:1px solid var(--brd);border-radius:2px;padding:12px;display:none;max-height:calc(100vh - 120px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--gd) transparent}#rp.vis{display:block}
 #sp{position:absolute;top:52px;right:8px;width:310px;background:var(--bg);border:1px solid var(--brd);border-radius:2px;padding:12px;display:none;max-height:calc(100vh - 120px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--gd) transparent}#sp.vis{display:block}
@@ -118,6 +118,7 @@ body.mode-flir::after{content:'';position:fixed;inset:0;z-index:9;background:rad
   #topbar{padding:0 8px}
   .logo{font-size:11px;letter-spacing:2px}
   .logo span{display:none}
+  .coords-sep,.coords-de{display:none}
   .coords{font-size:9px;gap:8px}
   .coords .lb{display:none}
   #rp,#sp{width:calc(100vw - 12px);left:6px;right:6px;top:48px;max-height:45vh}
@@ -154,7 +155,7 @@ body.mode-flir::after{content:'';position:fixed;inset:0;z-index:9;background:rad
   <div id="ch"><div class="cc ctl"></div><div class="cc ctr"></div><div class="cc cbl"></div><div class="cc cbr"></div><div class="cdt"></div></div>
   <div id="topbar">
     <div class="logo">WORLDVIEW<span>SPATIAL INTELLIGENCE</span></div>
-    <div class="coords"><div><span class="lb">LAT</span><span id="h-lat">0.0000</span></div><div><span class="lb">LON</span><span id="h-lon">0.0000</span></div><div><span class="lb">ALT</span><span id="h-alt">—</span></div><div><span class="lb">UTC</span><span id="h-utc">00:00:00</span></div></div>
+    <div class="coords"><div><span class="lb">LAT</span><span id="h-lat">0.0000</span></div><div><span class="lb">LON</span><span id="h-lon">0.0000</span></div><div><span class="lb">ALT</span><span id="h-alt">—</span></div><div><span class="lb">UTC</span><span id="h-utc">00:00:00</span></div><div class="coords-sep">·</div><div class="coords-de"><span class="lb">DE</span><span id="h-loc">—</span></div></div>
   </div>
   <div id="rp"><div class="rph"><span class="rpt" id="rp-t">DETAILS</span><div class="rph-btns"><button class="rpc rpf" id="rp-follow" onclick="toggleFollow()" style="display:none">⊕ TRACK</button><button class="rpc" onclick="closeD()">✕</button></div></div><div id="rp-c"></div></div>
   <div id="sp"><div class="rph"><span class="rpt" id="sp-t">SATELLITE TRACK</span><button class="rpc" onclick="closeSP()">✕</button></div><div id="sp-c"></div><button class="sp-btn" id="sp-orb-btn" onclick="toggleOrbitPath()">⬡ SHOW ORBIT PATH</button><button class="sp-btn" id="sp-follow-btn" onclick="toggleFollowSat()">⊕ TRACK SATELLITE</button></div>
@@ -224,7 +225,7 @@ function N(v){return v!=null?Number(v).toFixed(4):'—';}
 function setMode(m){document.body.className=`mode-${m}`;document.querySelectorAll('.dock-modes button').forEach(b=>b.classList.remove('active'));document.getElementById(`btn-${m}`).classList.add('active');notify('MODE: '+m.toUpperCase());}
 let _rpRefInt=null;
 const _rowsHTML=rows=>rows.map(([l,v])=>`<div class="dr"><span class="dl">${l}</span><span class="dv">${v??'—'}</span></div>`).join('');
-function showD(t,rows,refreshFn,followFn){
+function showD(t,rows,refreshFn,followFn,followHdgFn){
   document.getElementById('rp-t').textContent=t;
   document.getElementById('rp-c').innerHTML=_rowsHTML(rows);
   document.getElementById('rp').classList.add('vis');
@@ -233,7 +234,7 @@ function showD(t,rows,refreshFn,followFn){
   stopFollow();
   const fb=document.getElementById('rp-follow');
   if(fb){
-    if(followFn){fb.style.display='';fb._followFn=followFn;fb.classList.remove('active');fb.textContent='⊕ TRACK';}
+    if(followFn){fb.style.display='';fb._followFn=followFn;fb._followHdgFn=followHdgFn||null;fb.classList.remove('active');fb.textContent='⊕ TRACK';}
     else fb.style.display='none';
   }
 }
@@ -241,7 +242,7 @@ function closeD(){document.getElementById('rp').classList.remove('vis');if(_rpRe
 let cctvT=null;
 function showC(cam){if(cctvT)clearInterval(cctvT);document.getElementById('cp-t').textContent=cam.name||'CCTV';const b=document.getElementById('cp-b');
   if(cam.video){b.innerHTML=`<video src="${cam.video}" autoplay muted loop playsinline style="max-width:560px;max-height:420px" onerror="this.outerHTML='<div class=\\'cpe\\'>VIDEO UNAVAILABLE</div>'"></video>`;
-  }else if(cam.img){const ts=cam.img+(cam.img.includes('?')?'&':'?')+'t='+Date.now();b.innerHTML=`<img src="${ts}" onerror="this.outerHTML='<div class=\\'cpe\\'>FEED UNAVAILABLE</div>'" />`;cctvT=setInterval(()=>{const i=b.querySelector('img');if(i)i.src=cam.img+(cam.img.includes('?')?'&':'?')+'t='+Date.now();},8000);
+  }else if(cam.img){const _loadImg=()=>{const ts=cam.img+(cam.img.includes('?')?'&':'?')+'_r='+Date.now();const i=b.querySelector('img');if(i){i.src=ts;}document.getElementById('cp-m').textContent=`${cam.src||'—'} | ${cam.lat?.toFixed(4)}, ${cam.lon?.toFixed(4)} | ⟳ ${new Date().toLocaleTimeString('de-DE',{timeZone:'Europe/Berlin'})}`;}; b.innerHTML=`<img src="${cam.img+(cam.img.includes('?')?'&':'?')+'_r='+Date.now()}" onerror="this.outerHTML='<div class=\\'cpe\\'>FEED UNAVAILABLE</div>'" />`;cctvT=setInterval(_loadImg,5000);
   }else b.innerHTML='<div class="cpe">NO FEED URL</div>';
   document.getElementById('cp-m').textContent=`${cam.src||'—'} | ${cam.lat?.toFixed(4)}, ${cam.lon?.toFixed(4)}`;document.getElementById('cp').classList.add('vis');}
 function closeC(){document.getElementById('cp').classList.remove('vis');if(cctvT){clearInterval(cctvT);cctvT=null;}}
@@ -265,48 +266,51 @@ let _dockOpen=false;
 function toggleDock(){_dockOpen=!_dockOpen;document.getElementById('dock-panel').classList.toggle('open',_dockOpen);document.getElementById('dock-toggle').textContent=_dockOpen?'▼':'▲';}
 
 // ── Camera Follow / Track ──
-let _followInt=null,_followGetPos=null,_followDist=2e6;
-function startFollow(getPosFn){
+let _followInt=null,_followGetPos=null,_followGetHdg=null,_followDist=2e6,_followWheelFn=null;
+function startFollow(getPosFn,getHdgFn){
   stopFollow();
-  if(viewer)_followDist=Math.max(3e5,Math.min(viewer.camera.positionCartographic.height,1.5e7));
-  _followGetPos=getPosFn;
+  if(viewer)_followDist=Math.max(2e4,Math.min(viewer.camera.positionCartographic.height,1.5e7));
+  _followGetPos=getPosFn;_followGetHdg=getHdgFn||null;
+  // Wheel / pinch zoom while locked — adjust follow distance
+  _followWheelFn=e=>{if(!_followGetPos)return;_followDist=Math.max(1000,Math.min(_followDist*(e.deltaY>0?1.28:0.78),2e7));};
+  if(viewer)viewer.scene.canvas.addEventListener('wheel',_followWheelFn,{passive:true});
   _followInt=setInterval(()=>{
-    const pos=_followGetPos?.();
-    if(!pos||!viewer)return;
+    const pos=_followGetPos?.();if(!pos||!viewer)return;
+    const hdgDeg=_followGetHdg?.()??0;
+    // Place camera behind object (opposite of travel direction), look down at ~28°
+    const hdgRad=Cesium.Math.toRadians((hdgDeg+180)%360);
     viewer.camera.lookAt(Cesium.Cartesian3.fromDegrees(pos[0],pos[1],pos[2]),
-      new Cesium.HeadingPitchRange(0,Cesium.Math.toRadians(-28),_followDist));
-  },120);
+      new Cesium.HeadingPitchRange(hdgRad,Cesium.Math.toRadians(-28),_followDist));
+  },100);
 }
 function stopFollow(){
   if(_followInt){clearInterval(_followInt);_followInt=null;}
-  _followGetPos=null;
+  if(_followWheelFn&&viewer){viewer.scene.canvas.removeEventListener('wheel',_followWheelFn);_followWheelFn=null;}
+  _followGetPos=null;_followGetHdg=null;
   if(viewer){try{viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);}catch(e){}}
-  const fb=document.getElementById('rp-follow');
-  if(fb){fb.classList.remove('active');fb.textContent='⊕ TRACK';}
-  const fsb=document.getElementById('sp-follow-btn');
-  if(fsb){fsb.classList.remove('active');fsb.textContent='⊕ TRACK SATELLITE';}
+  const fb=document.getElementById('rp-follow');if(fb){fb.classList.remove('active');fb.textContent='⊕ TRACK';}
+  const fsb=document.getElementById('sp-follow-btn');if(fsb){fsb.classList.remove('active');fsb.textContent='⊕ TRACK SATELLITE';}
 }
 function toggleFollow(){
-  const fb=document.getElementById('rp-follow');
-  if(!fb)return;
+  const fb=document.getElementById('rp-follow');if(!fb)return;
   if(_followGetPos){stopFollow();notify('CAMERA UNLOCKED');}
-  else if(fb._followFn){startFollow(fb._followFn);fb.classList.add('active');fb.textContent='⊗ UNTRACK';notify('CAMERA LOCKED');}
+  else if(fb._followFn){startFollow(fb._followFn,fb._followHdgFn);fb.classList.add('active');fb.textContent='⊗ UNTRACK';notify('CAMERA LOCKED');}
 }
 function toggleFollowSat(){
-  const btn=document.getElementById('sp-follow-btn');
-  if(!btn)return;
+  const btn=document.getElementById('sp-follow-btn');if(!btn)return;
   if(_followGetPos){stopFollow();notify('CAMERA UNLOCKED');}
   else{
     if(satTrackIdx===null)return;
-    startFollow(()=>{const pt=satPts[satTrackIdx];if(!pt||!pt.show||!pt._wv)return null;const h=(parseFloat(pt._wv.alt)||500)*1000;return[pt._wv.lon,pt._wv.lat,h];});
+    startFollow(()=>{const pt=satPts[satTrackIdx];if(!pt||!pt.show||!pt._wv)return null;return[pt._wv.lon,pt._wv.lat,(parseFloat(pt._wv.alt)||500)*1000];});
     btn.classList.add('active');btn.textContent='⊗ UNTRACK';notify('CAMERA LOCKED');
   }
 }
 function tgl(n){layers[n]=layers[n]?0:1;const el=document.querySelector(`.lc[data-ly="${n}"]`);if(el)el.classList.toggle('off',!layers[n]);if(n==='zones')document.getElementById('zl').classList.toggle('vis',!!layers.zones);
   const sh=!!layers[n];
-  if(prims[n])prims[n].show=sh;
   if(n==='aircraft'&&prims.acBB)prims.acBB.show=sh;
   if(n==='military'&&prims.milBB)prims.milBB.show=sh;
+  if(n==='ships'&&prims.shipBB)prims.shipBB.show=sh;
+  if(n==='cctv'&&prims.camPts)prims.camPts.show=sh;
   if(n==='satellites'&&satPtCol)satPtCol.show=sh;
   if(n==='satellites'&&orbitPathDS)orbitPathDS.show=sh;
   if(n==='zones')['nfz','fir','gps_mod','gps_hi','gps_ext'].forEach(k=>{if(prims[k])prims[k].show=sh;});
@@ -320,19 +324,22 @@ function tgl(n){layers[n]=layers[n]?0:1;const el=document.querySelector(`.lc[dat
 const MIL=['AE','AF1','AF2','CFC','CNV','DUKE','EVIL','FURY','HAWK','IRON','JAKE','KING','NAVY','NCHO','OTTO','PAT','RAGE','RCH','RED','RFF','RRR','SAM','SNTRY','TOPCT','VIPER','WOLF','IAM','BAF','GAF','FAF','SHF','RFR','MMF','PLF','HUF','SVF','NRF','JEDI','SPAR','EVAC'];
 function isMil(cs){if(!cs)return false;const u=cs.trim().toUpperCase();return MIL.some(p=>u.startsWith(p));}
 
-// ── Canvas icons (HiDPI-aware, created ONCE) ──
-function makeIcon(draw,sz){const dpr=Math.min(window.devicePixelRatio||1,2);const c=document.createElement('canvas');c.width=sz*dpr;c.height=sz*dpr;const ctx=c.getContext('2d');ctx.scale(dpr,dpr);draw(ctx,sz);return c;}
-const acIconG=makeIcon((x,s)=>{x.translate(s/2,s/2);x.beginPath();x.moveTo(0,-s/2+1);x.lineTo(s/3,s/3);x.lineTo(0,s/5);x.lineTo(-s/3,s/3);x.closePath();x.fillStyle='#00ff88';x.shadowColor='#00ff88';x.shadowBlur=6;x.fill();x.strokeStyle='rgba(0,0,0,.7)';x.lineWidth=1.5;x.shadowBlur=0;x.stroke();},40);
-const acIconR=makeIcon((x,s)=>{x.translate(s/2,s/2);x.beginPath();x.moveTo(0,-s/2+1);x.lineTo(s/3,s/3);x.lineTo(0,s/5);x.lineTo(-s/3,s/3);x.closePath();x.fillStyle='#ff3344';x.shadowColor='#ff3344';x.shadowBlur=8;x.fill();x.strokeStyle='rgba(0,0,0,.7)';x.lineWidth=1.5;x.shadowBlur=0;x.stroke();},40);
-const shipIcn=makeIcon((x,s)=>{x.translate(s/2,s/2);// Hull shape: pointed bow, flat stern
-x.beginPath();x.moveTo(0,-s/2+1);x.lineTo(s*0.28,0);x.lineTo(s*0.22,s/3);x.lineTo(-s*0.22,s/3);x.lineTo(-s*0.28,0);x.closePath();x.fillStyle='#00ddff';x.shadowColor='#00ddff';x.shadowBlur=5;x.fill();x.strokeStyle='rgba(0,0,0,.6)';x.lineWidth=1;x.shadowBlur=0;x.stroke();// Superstructure
-x.fillStyle='rgba(0,180,220,.9)';x.fillRect(-s*0.1,-s*0.1,s*0.2,s*0.18);},26);
-// Satellite icon: body + solar panels cross
-const satIcn=makeIcon((x,s)=>{x.translate(s/2,s/2);// Solar panels — left
-x.fillStyle='#3366cc';x.shadowColor='#4488ff';x.shadowBlur=3;x.fillRect(-s/2+1,-2,s*0.32,4);// Solar panels — right
-x.fillRect(s*0.18,-2,s*0.32,4);// Body
-x.fillStyle='#ffffcc';x.shadowColor='#ffffcc';x.shadowBlur=7;x.fillRect(-4,-4,8,8);// Antenna stub
-x.strokeStyle='#ffffcc';x.lineWidth=1;x.beginPath();x.moveTo(0,-4);x.lineTo(2,-s/2+2);x.stroke();},22);
+// ── Emoji icons — consistent with layer chip symbols, HiDPI-aware ──
+function makeEmojiIcon(em,sz,glow){
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  const c=document.createElement('canvas');c.width=sz*dpr;c.height=sz*dpr;
+  const ctx=c.getContext('2d');ctx.scale(dpr,dpr);
+  ctx.shadowColor=glow;ctx.shadowBlur=10;
+  ctx.font=`${Math.round(sz*.74)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText(em,sz/2,sz/2);
+  return c;
+}
+const acIconG=makeEmojiIcon('✈',38,'#00ff88');   // civil aircraft
+const acIconR=makeEmojiIcon('⚔',36,'#ff3344');   // military
+const shipIcn=makeEmojiIcon('🚢',30,'#00ddff');  // vessel
+const satIcn =makeEmojiIcon('🛰',26,'#ffffaa');  // satellite
+const camIcn =makeEmojiIcon('📷',22,'#ff6655');  // CCTV camera
 let _selBB=null; // currently highlighted billboard
 
 // ── Zone GeoJSON ──
@@ -370,18 +377,20 @@ function initGlobe(){
   viewer.scene.backgroundColor=Cesium.Color.BLACK;
   viewer.scene.globe.baseColor=Cesium.Color.BLACK;
   const ctrl=viewer.scene.screenSpaceCameraController;
-  // Touch: pinch = zoom only; single finger = rotate/pan; ctrl+drag or middle drag = tilt
+  // Touch feel like Google Maps / Apple Maps:
+  // Single finger = rotate/pan globe, Pinch = zoom only, no accidental tilt
   ctrl.zoomEventTypes=[Cesium.CameraEventType.WHEEL,Cesium.CameraEventType.PINCH];
-  ctrl.tiltEventTypes=[Cesium.CameraEventType.MIDDLE_DRAG,{eventType:Cesium.CameraEventType.LEFT_DRAG,modifier:Cesium.KeyboardEventModifier.CTRL}];
   ctrl.rotateEventTypes=[Cesium.CameraEventType.LEFT_DRAG];
-  ctrl.inertiaSpin=0.6;ctrl.inertiaZoom=0.8;ctrl.inertiaTranslate=0.6;
-  ctrl.zoomFactor=3.5;ctrl.minimumZoomDistance=150;
+  ctrl.tiltEventTypes=[Cesium.CameraEventType.MIDDLE_DRAG,{eventType:Cesium.CameraEventType.LEFT_DRAG,modifier:Cesium.KeyboardEventModifier.CTRL}];
+  ctrl.inertiaSpin=0.9;ctrl.inertiaZoom=0.9;ctrl.inertiaTranslate=0.9;
+  ctrl.zoomFactor=2.5;ctrl.minimumZoomDistance=100;
+  ctrl.enableLook=false;
 
   // Primitives — created ONCE, never destroyed
   prims.acBB=viewer.scene.primitives.add(new Cesium.BillboardCollection());
   prims.milBB=viewer.scene.primitives.add(new Cesium.BillboardCollection());
   prims.shipBB=viewer.scene.primitives.add(new Cesium.BillboardCollection());
-  prims.camPts=viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection());
+  prims.camPts=viewer.scene.primitives.add(new Cesium.BillboardCollection());
   // Satellites — BillboardCollection with custom cross icon for visibility
   satPtCol=viewer.scene.primitives.add(new Cesium.BillboardCollection());
   // Trails
@@ -447,14 +456,16 @@ function initGlobe(){
     if(d.t==='ac'||d.t==='mil'){
       const hex=d.hex,isMil=d.t==='mil';
       const getRows=()=>{const wv=(isMil?milBBTrack:acBBTrack)[hex]?._wv;if(!wv)return null;const ac=acCache[hex];const pos=ac?._drPos?N(ac._drPos[1])+', '+N(ac._drPos[0]):N(wv.lat)+', '+N(wv.lon);return[['ICAO24',wv.hex],['CALLSIGN',wv.cs||'—'],['TYPE',wv.type||'—'],['OPERATOR',wv.r||'—'],['ALTITUDE',wv.alt],['SPEED',wv.spd],['HEADING',wv.trk],['POSITION',pos]];};
-      const getPos=()=>{const ac=acCache[hex];return ac?._drPos?[ac._drPos[0],ac._drPos[1],ac._drPos[2]]:(acCache[hex]?[acCache[hex].lon,acCache[hex].lat,100]:null);};
-      showD(isMil?'MILITARY TRACK':'AIRCRAFT TRACK',getRows()??[],getRows,getPos);
+      const getPos=()=>{const ac=acCache[hex];return ac?._drPos?[ac._drPos[0],ac._drPos[1],ac._drPos[2]]:(ac?[ac.lon,ac.lat,100]:null);};
+      const getHdg=()=>acCache[hex]?.track??0;
+      showD(isMil?'MILITARY TRACK':'AIRCRAFT TRACK',getRows()??[],getRows,getPos,getHdg);
     }else if(d.t==='sat')openSP(d.idx);
     else if(d.t==='shp'){
       const bb=pk.primitive;
       const getRows=()=>{const wv=bb?._wv;if(!wv)return null;return[['MMSI',wv.mmsi],['NAME',wv.nm||'—'],['SOG',wv.sog],['COG',wv.cog],['POSITION',N(wv.lat)+', '+N(wv.lon)]];};
       const getPos=()=>{const wv=bb?._wv;return wv?[wv.lon,wv.lat,50]:null;};
-      showD('VESSEL',getRows()??[],getRows,getPos);
+      const getHdg=()=>{const wv=bb?._wv;return wv?.cog?parseFloat(wv.cog):0;};
+      showD('VESSEL',getRows()??[],getRows,getPos,getHdg);
     }else if(d.t==='cam'){const cam=cams.find(c=>c.id===d.id);if(cam)showC(cam);}
   },Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
@@ -554,7 +565,7 @@ function renderAC(){
       track[a.hex].rotation=rot;track[a.hex].show=true;track[a.hex]._wv=wv;
     }else{
       // Cold path: new aircraft, create billboard once
-      const bb=(mil?milBB:acBB).add({position:pos,image:mil?acIconR:acIconG,width:mil?24:20,height:mil?24:20,rotation:rot,alignedAxis:Cesium.Cartesian3.ZERO,scaleByDistance:new Cesium.NearFarScalar(1e4,1.2,5e6,.22)});
+      const bb=(mil?milBB:acBB).add({position:pos,image:mil?acIconR:acIconG,width:mil?28:26,height:mil?28:26,rotation:rot,alignedAxis:Cesium.Cartesian3.ZERO,scaleByDistance:new Cesium.NearFarScalar(1e4,1.1,5e6,.2)});
       bb._wv=wv;track[a.hex]=bb;
     }
     // Trail append
@@ -762,7 +773,7 @@ async function fetchShips(){
       const wv={t:'shp',mmsi:p.mmsi||'—',nm:p.name||'',sog:p.sog!=null?(p.sog/10).toFixed(1)+' kn':'—',cog:p.cog!=null?(p.cog/10).toFixed(1)+'°':'—',lat,lon};
       seenShips.add(key);
       if(shipBBTrack[key]){shipBBTrack[key].position=pos;shipBBTrack[key].rotation=rot;shipBBTrack[key].show=true;shipBBTrack[key]._wv=wv;}
-      else{const bb=prims.shipBB.add({position:pos,image:shipIcn,width:9,height:9,rotation:rot,alignedAxis:Cesium.Cartesian3.ZERO,scaleByDistance:new Cesium.NearFarScalar(1e4,1.2,5e6,.2)});bb._wv=wv;shipBBTrack[key]=bb;}
+      else{const bb=prims.shipBB.add({position:pos,image:shipIcn,width:22,height:22,rotation:rot,alignedAxis:Cesium.Cartesian3.ZERO,scaleByDistance:new Cesium.NearFarScalar(1e4,1.1,5e6,.18)});bb._wv=wv;shipBBTrack[key]=bb;}
       // Append trail point
       const bb=shipBBTrack[key];if(!bb._trail)bb._trail=[];bb._trail.push([lon,lat,50]);if(bb._trail.length>8)bb._trail.shift();
       n++;
@@ -795,7 +806,7 @@ async function fetchCCTV(){
     setSS('dtfi','ok');log('CCTV','Digitraffic FI: '+dtN);}catch(e){setSS('dtfi','err');log('CCTV','Digitraffic FI: '+e.message);}
   try{log('CCTV','BC Open511...');const br=await fetch('https://api.open511.gov.bc.ca/webcams?format=json',{headers:{'Accept':'application/json'}});if(!br.ok)throw new Error('HTTP '+br.status);const bd=await br.json();let dbN=0;(bd.webcams||[]).forEach(wc=>{const c=wc.geography?.coordinates||wc.coordinates;const img=wc.url||wc.image_url||wc.snapshot_url;const name=wc.name||wc.title||('BC-'+wc.id);if(c?.length>=2&&img){cams.push({id:'bc511-'+(wc.id||dbN),name,lat:c[1],lon:c[0],img,src:'BC Open511'});dbN++;}});setSS('drivebc','ok');log('CCTV','BC Open511: '+dbN);}catch(e){setSS('drivebc','err');log('CCTV','BC Open511: '+e.message);}
   prims.camPts.removeAll();
-  cams.forEach(c=>{const pt=prims.camPts.add({position:Cesium.Cartesian3.fromDegrees(c.lon,c.lat,100),pixelSize:5,color:Cesium.Color.fromCssColorString('#ff3344')});pt._wv={t:'cam',id:c.id};});
+  cams.forEach(c=>{const pt=prims.camPts.add({position:Cesium.Cartesian3.fromDegrees(c.lon,c.lat,100),image:camIcn,width:16,height:16,scaleByDistance:new Cesium.NearFarScalar(1e3,1.2,3e6,.25)});pt._wv={t:'cam',id:c.id};});
   document.getElementById('c-cam').textContent=cams.length;log('CCTV',cams.length+' cams');
 }
 
@@ -838,7 +849,9 @@ function interpAC(){
 
 function startAnim(){
   (function frame(ts){
-    document.getElementById('h-utc').textContent=new Date().toISOString().substr(11,8);
+    const _now=new Date();
+    document.getElementById('h-utc').textContent=_now.toISOString().substr(11,8);
+    document.getElementById('h-loc').textContent=_now.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'Europe/Berlin'});
     // Satellite positions: SGP4 is deterministic — compute at 10fps for smooth orbital movement
     if(ts-lastSatProp>100){propSats();lastSatProp=ts;}
     // Aircraft dead-reckoning: ~30fps (33ms) for smooth visual movement
