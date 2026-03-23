@@ -932,7 +932,8 @@ function _ptOnSeg(seg,t){
 function initTraffic(){
   prims.trafficBB=viewer.scene.primitives.add(new Cesium.BillboardCollection());
   prims.trafficBB.show=true;
-  for(let i=0;i<500;i++){
+  const NUM_CARS=1000;
+  for(let i=0;i<NUM_CARS;i++){
     const segIdx=i%ROADS.length;
     const t=Math.random();
     const spd=(0.0025+Math.random()*0.004)*(Math.random()<0.5?1:-1);
@@ -945,7 +946,7 @@ function initTraffic(){
     });
     carPool.push({segIdx,t,spd,bb});
   }
-  document.getElementById('c-trf').textContent=500;
+  document.getElementById('c-trf').textContent=NUM_CARS;
 }
 
 // Fetch motorway/trunk road geometry from Overpass API for the current camera viewport.
@@ -1120,10 +1121,12 @@ async function fetchBVG(){
   const e=Math.min(R(rect.east),15.5).toFixed(4), w=Math.max(R(rect.west),11.0).toFixed(4);
   try{
     log('bvg','BVG radar...');
-    const r=await fetch(`https://v6.bvg.transport.rest/radar?north=${n}&west=${w}&south=${s}&east=${e}&results=1000&duration=30&frames=3`);
+    const r=await fetch(`https://v6.bvg.transport.rest/radar?north=${n}&west=${w}&south=${s}&east=${e}&results=1000&duration=30&frames=1`);
     if(!r.ok)throw new Error('HTTP '+r.status);
     const data=await r.json();
-    const list=Array.isArray(data)?data:Array.isArray(data.movements)?data.movements:[];
+    // frames=1 → {movements:[...]}; bare array fallback
+    const raw=Array.isArray(data)?data[0]??data:data;
+    const list=Array.isArray(raw)?raw:Array.isArray(raw.movements)?raw.movements:[];
     let ci=0;
     for(const v of list){
       if(ci>=bvgPool.length)break;
