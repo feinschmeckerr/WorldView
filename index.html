@@ -193,6 +193,7 @@ body.mode-flir::after{content:'';position:fixed;inset:0;z-index:9;background:rad
         <div class="lc" data-ly="ships" onclick="tgl('ships')"><span class="lc-ic">🚢</span><span class="lc-nm">VESSELS</span><span class="lc-ct" id="c-shp">0</span></div>
         <div class="lc" data-ly="cctv" onclick="tgl('cctv')"><span class="lc-ic">📷</span><span class="lc-nm">CCTV</span><span class="lc-ct" id="c-cam">0</span></div>
         <div class="lc" data-ly="zones" onclick="tgl('zones')"><span class="lc-ic">⚠</span><span class="lc-nm">ZONES</span><span class="lc-ct" id="c-zn">—</span></div>
+        <div class="lc off" data-ly="traffic" onclick="tgl('traffic')"><span class="lc-ic">🚗</span><span class="lc-nm">TRAFFIC</span><span class="lc-ct" id="c-trf">—</span></div>
       </div>
       <div class="dock-status"><div class="pd"></div><div id="stx">INITIALIZING...</div></div>
     </div>
@@ -249,7 +250,7 @@ document.addEventListener('keydown',e=>{if(e.key==='1')setMode('normal');else if
 
 // ── State ──
 let viewer;
-const layers={aircraft:1,military:1,satellites:1,ships:1,cctv:1,zones:1};
+const layers={aircraft:1,military:1,satellites:1,ships:1,cctv:1,zones:1,traffic:0};
 const prims={};  // named primitive references
 const satRecs=[];
 const cams=[];
@@ -258,6 +259,7 @@ const acCache={};  // hex -> {data, billboard}
 const acBBTrack={},milBBTrack={},shipBBTrack={};
 const trailPool=[];  // Pre-allocated PolylineCollection pool (aircraft)
 const shipTrailPool=[];  // Pre-allocated PolylineCollection pool (ships)
+const carPool=[];  // Traffic flow car billboard pool
 let trailLineColl,shipTrailLineColl,satPtCol,_lastPick=0;
 let satTrackIdx=null,satTrackInt=null,orbitPathDS=null,showOrbit=false;
 
@@ -331,6 +333,7 @@ function tgl(n){layers[n]=layers[n]?0:1;const el=document.querySelector(`.lc[dat
   if(n==='zones')['nfz','fir','gps_mod','gps_hi','gps_ext'].forEach(k=>{if(prims[k])prims[k].show=sh;});
   if(n==='aircraft'&&trailLineColl)trailLineColl.show=sh;
   if(n==='ships'&&shipTrailLineColl)shipTrailLineColl.show=sh;
+  if(n==='traffic'&&prims.trafficBB){prims.trafficBB.show=sh;if(!sh)carPool.forEach(c=>{try{c.bb.show=false;}catch(e){}});}
   if(viewer)viewer.scene.requestRender();
 }
 
@@ -370,6 +373,20 @@ const shipIcn=makeIcon((x,s)=>{const r=s/2-1;x.translate(s/2,s/2);
 // Satellite and CCTV — emoji (static, no rotation)
 const satIcn=makeEmojiIcon('🛰',26,'#ffffaa');
 const camIcn=makeEmojiIcon('📷',22,'#ff6655');
+
+// Car icon — top-down view, 10×16px, nose (windshield) at top = north, rotated via UNIT_Z
+const carIcn=(()=>{
+  const dpr=Math.min(window.devicePixelRatio||1,2);const W=10,H=16;
+  const c=document.createElement('canvas');c.width=W*dpr;c.height=H*dpr;
+  const x=c.getContext('2d');x.scale(dpr,dpr);
+  x.fillStyle='#ffe566';x.shadowColor='rgba(180,130,0,.35)';x.shadowBlur=3;
+  x.fillRect(1,0,W-2,H);
+  x.strokeStyle='rgba(0,0,0,.4)';x.lineWidth=0.8;x.shadowBlur=0;x.strokeRect(1,0,W-2,H);
+  x.fillStyle='rgba(140,210,255,.75)';x.fillRect(2,1,W-4,4);   // windshield (front)
+  x.fillStyle='rgba(140,210,255,.4)'; x.fillRect(2,H-5,W-4,3); // rear window
+  return c;
+})();
+
 let _selBB=null; // currently highlighted billboard
 
 // ── Zone GeoJSON ──
@@ -435,6 +452,9 @@ function initGlobe(){
   shipTrailLineColl=viewer.scene.primitives.add(new Cesium.PolylineCollection());
   const _sc=new Cesium.Color(0,0.867,1,0.25);
   for(let i=0;i<40;i++)shipTrailPool.push(shipTrailLineColl.add({positions:[Cesium.Cartesian3.ZERO,Cesium.Cartesian3.fromDegrees(0,1,50)],width:1.2,material:Cesium.Material.fromType('Color',{color:_sc}),show:false}));
+
+  // Traffic flow car pool
+  initTraffic();
 
   // Zones
   const loadGJ=(name,gj,opts)=>{const ds=new Cesium.GeoJsonDataSource(name);ds.load(gj,opts).then(()=>viewer.dataSources.add(ds));prims[name]=ds;};
@@ -779,6 +799,88 @@ function propSats(){
   viewer.scene.requestRender();
 }
 
+// ── Traffic Flow — real highway GPS coordinates, 25 segments worldwide ──
+// Each segment: [[lon,lat], ...] — waypoints on major highways, front of car = canvas top (north).
+// Cars are animated at visual speed (~10× real) so movement is visible at regional zoom.
+const ROADS=[
+  // Europe
+  [[11.556,48.136],[11.505,48.250],[11.459,48.451],[11.383,48.625],[11.303,48.794],[11.187,48.988],[11.075,49.191],[11.061,49.447]], // DE A9 Munich→Nuremberg
+  [[9.990,53.552],[9.905,53.126],[9.870,52.625],[9.800,52.370],[9.768,52.139],[9.699,51.654],[9.650,51.365]], // DE A7 Hamburg→Frankfurt
+  [[8.672,50.108],[8.497,50.189],[8.282,50.378],[8.123,50.422],[7.962,50.571],[7.873,50.745],[7.644,50.819],[6.975,50.942]], // DE A3 Frankfurt→Köln
+  [[-0.221,51.670],[-0.370,51.882],[-0.537,52.083],[-0.681,52.244],[-0.755,52.447],[-0.860,52.600],[-1.020,52.718],[-1.830,52.490]], // UK M1 London→Birmingham
+  [[-0.480,51.434],[-0.502,51.484],[-0.530,51.566],[-0.527,51.640],[-0.440,51.720],[-0.316,51.730],[-0.205,51.725]], // UK M25 NW sector
+  [[2.353,48.725],[2.219,48.589],[2.101,48.386],[3.076,46.876],[3.892,46.434],[4.300,45.976],[4.843,45.755],[5.336,43.296]], // FR A6/A7 Paris→Marseille
+  [[9.149,45.468],[9.228,44.897],[9.323,44.704],[9.462,44.499],[9.525,44.303],[9.789,44.163],[11.018,44.038],[11.277,43.769]], // IT A1 Milan→Florence
+  [[-3.688,40.415],[-3.731,40.195],[-3.800,39.857],[-3.892,39.474],[-4.060,38.839],[-4.677,38.182],[-4.797,37.887],[-5.969,37.386]], // ES A-4 Madrid→Seville
+  [[4.915,52.350],[4.890,52.270],[4.881,52.091],[5.110,51.987],[5.467,51.650],[5.510,51.440]], // NL A2 Amsterdam→Eindhoven
+  [[18.065,59.329],[17.817,59.003],[17.439,58.740],[16.151,58.104],[14.562,57.694],[13.088,57.673],[11.979,57.706]], // SE E4 Stockholm→Göteborg
+  [[18.652,54.356],[18.600,54.000],[18.550,53.600],[18.500,53.200],[19.100,52.500],[19.440,51.752]], // PL A1 Gdańsk→Łódź
+  // North America
+  [[-71.068,42.358],[-71.266,41.817],[-71.329,41.471],[-72.680,41.457],[-73.075,41.174],[-73.942,40.713],[-74.177,40.197],[-75.148,39.961]], // US I-95 Boston→Philadelphia
+  [[-118.243,34.052],[-118.523,34.204],[-118.626,34.535],[-119.105,34.837],[-119.769,36.338],[-120.863,37.337],[-121.662,37.682],[-122.419,37.788]], // US I-5 LA→San Francisco
+  [[-118.243,34.052],[-117.525,34.055],[-116.545,33.773],[-115.577,33.425],[-114.621,33.431],[-113.957,33.432],[-112.074,33.451]], // US I-10 LA→Phoenix
+  [[-87.629,41.881],[-87.031,41.691],[-86.254,41.681],[-85.148,41.643],[-83.999,41.632],[-82.071,41.452],[-81.697,41.504]], // US I-80 Chicago→Cleveland
+  [[-99.180,19.430],[-99.200,19.370],[-99.210,19.300],[-99.180,19.240],[-99.100,19.180],[-99.060,19.130]], // MX Periférico Mexico City
+  // Asia
+  [[139.749,35.591],[139.613,35.392],[139.086,35.107],[138.393,34.969],[137.910,34.872],[137.181,35.097],[136.906,35.175]], // JP Tomei Tokyo→Nagoya
+  [[127.013,37.556],[127.179,37.189],[127.636,36.924],[128.013,36.596],[128.617,36.078],[128.908,35.591],[129.047,35.102]], // KR Seoul→Busan Gyeongbu
+  [[116.407,39.910],[116.569,39.709],[116.888,39.290],[117.119,38.913],[117.490,37.450],[117.920,36.710],[118.560,35.040]], // CN G2 Beijing→Jinan
+  [[72.833,19.076],[72.992,18.985],[73.186,18.777],[73.407,18.553],[73.858,18.519]], // IN Mumbai–Pune Expressway
+  [[29.046,40.990],[29.116,40.886],[29.231,40.806],[29.509,40.717],[30.010,40.646],[30.518,40.621],[31.200,40.355],[32.870,39.919]], // TR D-100 Istanbul→Ankara
+  // Africa / Oceania / South America
+  [[31.242,30.062],[30.988,30.220],[30.667,30.511],[30.396,30.909],[29.997,31.116],[29.920,31.211]], // EG N1 Cairo→Alexandria
+  [[-7.589,33.586],[-7.497,33.733],[-7.371,33.859],[-7.146,34.013],[-6.858,34.020]], // MA A1 Casablanca→Rabat
+  [[151.209,-33.870],[150.763,-34.048],[150.165,-34.401],[149.784,-34.716],[149.181,-35.306],[149.124,-35.307]], // AU Hume Hwy Sydney→Canberra
+  [[-46.633,-23.548],[-46.620,-23.790],[-46.556,-24.056],[-46.296,-24.379],[-46.008,-24.701],[-49.281,-25.432]]  // BR BR-116 SP→Curitiba
+];
+
+// Returns [lon, lat, heading°] at parameter t (0–1) along segment
+function _ptOnSeg(seg,t){
+  const n=seg.length-1;
+  const i=Math.min(Math.floor(t*n),n-1);
+  const f=t*n-i;
+  const a=seg[i],b=seg[i+1];
+  const lon=a[0]+(b[0]-a[0])*f;
+  const lat=a[1]+(b[1]-a[1])*f;
+  const dLon=(b[0]-a[0])*Math.cos(lat*D2R);
+  const dLat=b[1]-a[1];
+  const hdg=(Math.atan2(dLon,dLat)*R2D+360)%360;
+  return[lon,lat,hdg];
+}
+
+function initTraffic(){
+  prims.trafficBB=viewer.scene.primitives.add(new Cesium.BillboardCollection());
+  prims.trafficBB.show=false; // off by default
+  for(let i=0;i<200;i++){
+    const segIdx=i%ROADS.length;
+    const t=Math.random();
+    const spd=(0.003+Math.random()*0.005)*(Math.random()<0.5?1:-1);
+    const bb=prims.trafficBB.add({
+      position:Cesium.Cartesian3.ZERO,image:carIcn,width:10,height:16,rotation:0,
+      alignedAxis:Cesium.Cartesian3.UNIT_Z,show:false,
+      scaleByDistance:new Cesium.NearFarScalar(500,2,2e5,0.4)
+    });
+    carPool.push({segIdx,t,spd,bb});
+  }
+  document.getElementById('c-trf').textContent=200;
+}
+
+function updateTraffic(){
+  if(!layers.traffic||!prims.trafficBB)return;
+  const h=viewer.camera.positionCartographic.height;
+  const show=h<2e5; // only render below 200 km altitude
+  for(const car of carPool){
+    if(!show){car.bb.show=false;continue;}
+    car.t+=car.spd;
+    car.t=((car.t%1)+1)%1;
+    const[lon,lat,hdg]=_ptOnSeg(ROADS[car.segIdx],car.t);
+    const finalHdg=car.spd<0?(hdg+180)%360:hdg;
+    car.bb.position=Cesium.Cartesian3.fromDegrees(lon,lat,5);
+    car.bb.rotation=Cesium.Math.toRadians(-finalHdg);
+    car.bb.show=true;
+  }
+}
+
 // ── AIS lookups: MID (MMSI prefix → country) + AIS ship type codes ──
 const MID={201:'Albania',202:'Andorra',203:'Austria',204:'Portugal',205:'Belgium',206:'Belarus',207:'Bulgaria',208:'Vatican',209:'Cyprus',210:'Cyprus',211:'Germany',212:'Cyprus',213:'Georgia',214:'Moldova',215:'Malta',218:'Germany',219:'Denmark',220:'Denmark',224:'Spain',225:'Spain',226:'France',227:'France',228:'France',229:'Malta',230:'Finland',231:'Faroe Islands',232:'UK',233:'UK',234:'UK',235:'UK',236:'Gibraltar',237:'Greece',238:'Norway',239:'Greece',240:'Greece',241:'Greece',244:'Netherlands',245:'Netherlands',246:'Netherlands',247:'Italy',248:'Malta',249:'Malta',250:'Ireland',251:'Iceland',252:'Liechtenstein',253:'Luxembourg',254:'Monaco',255:'Portugal',257:'Norway',258:'Norway',259:'Norway',261:'Poland',265:'Sweden',266:'Sweden',267:'Sweden',268:'Russia',269:'Russia',272:'Ukraine',273:'Russia',276:'Estonia',277:'Latvia',278:'Lithuania',279:'Russia',303:'USA',305:'Antigua',308:'Bahamas',309:'Bahamas',310:'Bermuda',311:'Bahamas',312:'Belize',314:'Barbados',316:'Canada',319:'Cayman Islands',321:'Cuba',323:'Dom. Republic',325:'El Salvador',327:'Guatemala',330:'Grenada',331:'Greenland',332:'Honduras',334:'Jamaica',336:'Mexico',338:'USA',339:'Panama',351:'Panama',352:'Panama',353:'Panama',354:'Panama',355:'Panama',356:'Panama',357:'Panama',366:'USA',367:'USA',368:'USA',369:'USA',370:'Panama',371:'Panama',372:'Panama',373:'Panama',376:'Brit. Virgin Islands',412:'China',413:'China',414:'China',416:'Taiwan',417:'Sri Lanka',419:'India',422:'Iran',425:'Pakistan',426:'Bahrain',427:'Kuwait',429:'UAE',431:'Japan',432:'Japan',440:'South Korea',441:'South Korea',443:'North Korea',447:'Philippines',451:'Vietnam',470:'UAE',477:'Hong Kong',480:'Indonesia',525:'Indonesia',530:'Malaysia',533:'Malaysia',563:'Singapore',564:'Singapore',565:'Singapore',574:'Vietnam',577:'Australia',578:'Australia',601:'South Africa',605:'Algeria',619:'Côte d\'Ivoire',622:'Egypt',626:'Gabon',627:'Ghana',634:'Kenya',636:'Liberia',637:'Liberia',642:'Libya',647:'Madagascar',654:'Mauritania',655:'Mozambique',656:'Morocco',660:'Nigeria',664:'Sudan',665:'Senegal',666:'Somalia',672:'Tunisia',674:'Tanzania',701:'Argentina',710:'Brazil',720:'Bolivia',725:'Chile',730:'Colombia',735:'Ecuador',750:'Guyana',755:'Paraguay',760:'Peru',770:'Uruguay',775:'Venezuela'};
 function stype(t){if(!t)return'—';if(t>=60&&t<=69)return'PASSENGER';if(t>=70&&t<=79)return'CARGO';if(t>=80&&t<=89)return'TANKER';if(t>=40&&t<=49)return'HIGH-SPEED';if(t===30)return'FISHING';if(t===31||t===32)return'TOWING';if(t===33)return'DREDGER';if(t===35)return'MILITARY';if(t===36)return'SAILING';if(t===37)return'PLEASURE';if(t===51)return'SAR';if(t===52)return'TUG';if(t>=90&&t<=99)return'OTHER';return t>0?'SPECIAL':'—';}
@@ -836,20 +938,32 @@ async function fetchCCTV(){
     if(!dr.ok)dr=await fetch('https://tie.digitraffic.fi/api/v1/metadata/camera-stations',{headers:_hdr});
     if(!dr.ok)throw new Error('HTTP '+dr.status);
     const dd=await dr.json();let dtN=0;
-    (dd.cameraStations||[]).forEach(cs=>{
-      const lat=cs.wgs84Lat??cs.latitude??cs.coordinates?.y,lon=cs.wgs84Long??cs.longitude??cs.coordinates?.x;
+    // v3 returns GeoJSON FeatureCollection; v1 returns {cameraStations:[]}
+    const stations=dd.features||dd.cameraStations||[];
+    stations.forEach(cs=>{
+      const geo=!!cs.geometry;
+      const lat=geo?cs.geometry.coordinates?.[1]:(cs.wgs84Lat??cs.latitude??cs.coordinates?.y);
+      const lon=geo?cs.geometry.coordinates?.[0]:(cs.wgs84Long??cs.longitude??cs.coordinates?.x);
       if(!lat||!lon||Math.abs(+lat)<1||Math.abs(+lon)<1)return;
-      (cs.cameraPresets||[]).forEach(cp=>{const img=cp.imageUrl||cp.stillImageUrl;if(img){cams.push({id:'dtfi-'+cp.id,name:(cs.names?.en||cs.names?.fi||cs.name||cp.presentationName||cp.id),lat:+lat,lon:+lon,img,src:'Digitraffic FI'});dtN++;}});
+      const presets=(geo?cs.properties?.cameraPresets:cs.cameraPresets)||[];
+      const name=geo?(cs.properties?.name||cs.id):(cs.names?.en||cs.names?.fi||cs.name||cs.id);
+      presets.forEach(cp=>{const img=cp.imageUrl||cp.stillImageUrl||cp.defaultUrl;if(img){cams.push({id:'dtfi-'+cp.id,name,lat:+lat,lon:+lon,img,src:'Digitraffic FI'});dtN++;}});
     });
     setSS('dtfi','ok');log('CCTV','Digitraffic FI: '+dtN);}catch(e){setSS('dtfi','err');log('CCTV','Digitraffic FI: '+e.message);}
-  try{log('CCTV','BC Open511...');const br=await fetch('https://api.open511.gov.bc.ca/webcams?format=json',{headers:{'Accept':'application/json'}});if(!br.ok)throw new Error('HTTP '+br.status);const bd=await br.json();let dbN=0;(bd.webcams||[]).forEach(wc=>{const c=wc.geography?.coordinates||wc.coordinates;const img=wc.url||wc.image_url||wc.snapshot_url;const name=wc.name||wc.title||('BC-'+wc.id);if(c?.length>=2&&img){cams.push({id:'bc511-'+(wc.id||dbN),name,lat:c[1],lon:c[0],img,src:'BC Open511'});dbN++;}});setSS('drivebc','ok');log('CCTV','BC Open511: '+dbN);}catch(e){setSS('drivebc','err');log('CCTV','BC Open511: '+e.message);}
+  try{log('CCTV','BC Open511...');const br=await fetch('https://api.open511.gov.bc.ca/webcams?format=json',{headers:{'Accept':'application/json'}});if(!br.ok)throw new Error('HTTP '+br.status);const bd=await br.json();let dbN=0;(bd.webcams||[]).forEach(wc=>{const c=wc.geography?.coordinates||wc.coordinates;if(!c?.length)return;
+    // wc.url is the DriveBC page URL (e.g. .../id/515/view.html); extract numeric ID for image
+    const idM=(wc.url||'').match(/\/id\/(\d+)/);
+    const img=idM?`https://images.drivebc.ca/bchighwaycam/pub/cameras/${idM[1]}/currentlarge.jpg`
+                  :(wc.image_url||wc.snapshot_url||null);
+    const name=wc.name||wc.title||('BC-'+(idM?.[1]||wc.id));
+    if(img){cams.push({id:'bc511-'+(wc.id||dbN),name,lat:c[1],lon:c[0],img,src:'DriveBC'});dbN++;}});setSS('drivebc','ok');log('CCTV','BC Open511: '+dbN);}catch(e){setSS('drivebc','err');log('CCTV','BC Open511: '+e.message);}
   prims.camPts.removeAll();
   cams.forEach(c=>{const pt=prims.camPts.add({position:Cesium.Cartesian3.fromDegrees(c.lon,c.lat,100),image:camIcn,width:16,height:16,scaleByDistance:new Cesium.NearFarScalar(1e3,1.2,3e6,.25)});pt._wv={t:'cam',id:c.id};});
   document.getElementById('c-cam').textContent=cams.length;log('CCTV',cams.length+' cams');
 }
 
 // ═══ ANIMATION ═══
-let lastSatProp=0,_lastInterp=0,_lastShipInterp=0,_lastTrailUpdate=0;
+let lastSatProp=0,_lastInterp=0,_lastShipInterp=0,_lastTrailUpdate=0,_lastTrafficUpdate=0;
 
 // Dead-reckoning at 30fps: smoothly advances aircraft positions using heading + speed.
 // Uses smoothstep blend to correct from predicted→actual when new API data arrives.
@@ -927,6 +1041,8 @@ function startAnim(){
     if(ts-_lastInterp>33){interpAC();_lastInterp=ts;}
     // Ship dead-reckoning: ~5fps (200ms) — ships are slow, no need for 30fps
     if(ts-_lastShipInterp>200){interpShip();_lastShipInterp=ts;}
+    // Traffic flow: ~10fps (100ms), only when layer is active and camera is close enough
+    if(ts-_lastTrafficUpdate>100){updateTraffic();_lastTrafficUpdate=ts;}
     // Trail updates: every 3s (cheaper, runs less often)
     if(ts-_lastTrailUpdate>3000){updateTrails();_lastTrailUpdate=ts;}
     requestAnimationFrame(frame);
