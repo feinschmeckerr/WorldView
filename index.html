@@ -83,6 +83,49 @@ body.mode-flir::after{content:'';position:fixed;inset:0;z-index:9;background:rad
 #stx{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:rgba(0,255,136,.55);font-size:8px}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}@keyframes nfIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}@keyframes nfOut{from{opacity:1}to{opacity:0;transform:translateY(-10px)}}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:0 0}::-webkit-scrollbar-thumb{background:var(--gd);border-radius:2px}
+/* ── Glassmorphism overlays ── */
+#topbar{background:linear-gradient(180deg,rgba(0,0,0,.88),rgba(0,0,0,.55));backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+#dock{background:linear-gradient(0deg,rgba(0,0,0,.94),rgba(0,0,0,.72));backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+#rp,#sp{background:rgba(0,3,0,.84);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 0 30px rgba(0,255,136,.06),inset 0 0 0 1px rgba(0,255,136,.14)}
+#cp{background:rgba(0,2,0,.95);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px)}
+#dl{background:rgba(0,0,0,.75);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+/* ── Enhanced interactive states ── */
+.lc{transition:border-color .18s,background .18s,box-shadow .18s}
+.lc:hover{box-shadow:0 0 12px rgba(0,255,136,.18)}
+.lc:not(.off):hover{border-color:rgba(0,255,136,.7)}
+.dock-modes button{transition:all .18s;border-radius:1px}
+.dock-modes button:not(.active):hover{background:rgba(0,255,136,.1);box-shadow:0 0 8px rgba(0,255,136,.12)}
+.dock-modes button.active{box-shadow:0 0 14px rgba(0,255,136,.35)}
+.sp-btn{transition:background .15s,box-shadow .15s}.sp-btn:hover{box-shadow:0 0 10px rgba(0,255,136,.2)}
+.rpc,.cpx{transition:background .15s,box-shadow .15s;border-radius:1px}
+.rpc:hover,.cpx:hover{box-shadow:0 0 8px rgba(255,51,68,.4)}
+/* ── Responsive: mobile portrait (≤ 520px) ── */
+@media(max-width:520px){
+  #topbar{padding:0 8px}
+  .logo{font-size:11px;letter-spacing:2px}
+  .logo span{display:none}
+  .coords{font-size:9px;gap:8px}
+  .coords .lb{display:none}
+  #rp,#sp{width:calc(100vw - 12px);left:6px;right:6px;top:48px;max-height:45vh}
+  #cp{width:100vw;left:0;right:0;transform:none;top:auto;bottom:56px;border-radius:0}
+  .cpb{min-width:unset;min-height:180px;padding:4px}
+  .cpb img,.cpb video{max-width:100%;max-height:50vw}
+  #dl{display:none}
+  #zl{left:6px;right:6px;bottom:58px;width:auto;max-width:unset}
+  #dock-bar{padding:0 4px;gap:0}
+  #dock-toggle{width:28px;font-size:11px}
+  .dock-sep{margin:0 4px}
+  .dock-modes{gap:1px}
+  .dock-modes button{padding:4px 7px;font-size:8px;letter-spacing:0}
+  .lc-nm{display:none}
+  .lc{padding:5px 7px;gap:2px}
+  .lc-ct{font-size:10px;min-width:20px}
+  .lc-ic{font-size:13px}
+  .dock-status{display:none}
+  #dock-panel.open{max-height:200px}
+  .dp-inner{gap:3px 12px}
+  .nf{font-size:9px;padding:5px 12px}
+}
 </style>
 </head>
 <body class="mode-normal">
@@ -148,12 +191,20 @@ function notify(m,t=''){const el=document.createElement('div');el.className=`nf 
 function setSS(id,st){const r=document.getElementById('s-'+id);if(!r)return;r.querySelector('.sd').className=`sd ${st==='ok'?'ok':st==='err'?'err':'ld'}`;const ts=document.getElementById('t-'+id);if(st==='ok')ts.textContent=new Date().toISOString().substr(11,8);else if(st==='err')ts.textContent='ERR';}
 function N(v){return v!=null?Number(v).toFixed(4):'—';}
 function setMode(m){document.body.className=`mode-${m}`;document.querySelectorAll('.dock-modes button').forEach(b=>b.classList.remove('active'));document.getElementById(`btn-${m}`).classList.add('active');notify('MODE: '+m.toUpperCase());}
-function showD(t,rows){document.getElementById('rp-t').textContent=t;document.getElementById('rp-c').innerHTML=rows.map(([l,v])=>`<div class="dr"><span class="dl">${l}</span><span class="dv">${v}</span></div>`).join('');document.getElementById('rp').classList.add('vis');}
-function closeD(){document.getElementById('rp').classList.remove('vis');}
+let _rpRefInt=null;
+const _rowsHTML=rows=>rows.map(([l,v])=>`<div class="dr"><span class="dl">${l}</span><span class="dv">${v??'—'}</span></div>`).join('');
+function showD(t,rows,refreshFn){
+  document.getElementById('rp-t').textContent=t;
+  document.getElementById('rp-c').innerHTML=_rowsHTML(rows);
+  document.getElementById('rp').classList.add('vis');
+  if(_rpRefInt){clearInterval(_rpRefInt);_rpRefInt=null;}
+  if(refreshFn)_rpRefInt=setInterval(()=>{const r=refreshFn();if(r)document.getElementById('rp-c').innerHTML=_rowsHTML(r);},1500);
+}
+function closeD(){document.getElementById('rp').classList.remove('vis');if(_rpRefInt){clearInterval(_rpRefInt);_rpRefInt=null;}}
 let cctvT=null;
 function showC(cam){if(cctvT)clearInterval(cctvT);document.getElementById('cp-t').textContent=cam.name||'CCTV';const b=document.getElementById('cp-b');
   if(cam.video){b.innerHTML=`<video src="${cam.video}" autoplay muted loop playsinline style="max-width:560px;max-height:420px" onerror="this.outerHTML='<div class=\\'cpe\\'>VIDEO UNAVAILABLE</div>'"></video>`;
-  }else if(cam.img){const ts=cam.img+(cam.img.includes('?')?'&':'?')+'t='+Date.now();b.innerHTML=`<img src="${ts}" onerror="this.outerHTML='<div class=\\'cpe\\'>FEED UNAVAILABLE</div>'" />`;cctvT=setInterval(()=>{const i=b.querySelector('img');if(i)i.src=cam.img+(cam.img.includes('?')?'&':'?')+'t='+Date.now();},20000);
+  }else if(cam.img){const ts=cam.img+(cam.img.includes('?')?'&':'?')+'t='+Date.now();b.innerHTML=`<img src="${ts}" onerror="this.outerHTML='<div class=\\'cpe\\'>FEED UNAVAILABLE</div>'" />`;cctvT=setInterval(()=>{const i=b.querySelector('img');if(i)i.src=cam.img+(cam.img.includes('?')?'&':'?')+'t='+Date.now();},8000);
   }else b.innerHTML='<div class="cpe">NO FEED URL</div>';
   document.getElementById('cp-m').textContent=`${cam.src||'—'} | ${cam.lat?.toFixed(4)}, ${cam.lon?.toFixed(4)}`;document.getElementById('cp').classList.add('vis');}
 function closeC(){document.getElementById('cp').classList.remove('vis');if(cctvT){clearInterval(cctvT);cctvT=null;}}
@@ -305,10 +356,16 @@ function initGlobe(){
     if(!pk?.primitive?._wv){_selBB=null;return;}
     _selBB=pk.primitive;try{_selBB.scale=2;}catch(e){}
     const d=pk.primitive._wv;
-    if(d.t==='ac'||d.t==='mil')showD(d.t==='mil'?'MILITARY TRACK':'AIRCRAFT TRACK',[['ICAO24',d.hex],['CALLSIGN',d.cs],['TYPE',d.type||'—'],['OPERATOR',d.r],['ALTITUDE',d.alt],['SPEED',d.spd],['HEADING',d.trk],['POSITION',N(d.lat)+', '+N(d.lon)]]);
-    else if(d.t==='sat')openSP(d.idx);
-    else if(d.t==='shp')showD('VESSEL',[['MMSI',d.mmsi],['NAME',d.nm],['SOG',d.sog],['COG',d.cog],['POS',N(d.lat)+', '+N(d.lon)]]);
-    else if(d.t==='cam'){const cam=cams.find(c=>c.id===d.id);if(cam)showC(cam);}
+    if(d.t==='ac'||d.t==='mil'){
+      const hex=d.hex,isMil=d.t==='mil';
+      const getRows=()=>{const wv=(isMil?milBBTrack:acBBTrack)[hex]?._wv;if(!wv)return null;const ac=acCache[hex];const pos=ac?._drPos?N(ac._drPos[1])+', '+N(ac._drPos[0]):N(wv.lat)+', '+N(wv.lon);return[['ICAO24',wv.hex],['CALLSIGN',wv.cs||'—'],['TYPE',wv.type||'—'],['OPERATOR',wv.r||'—'],['ALTITUDE',wv.alt],['SPEED',wv.spd],['HEADING',wv.trk],['POSITION',pos]];};
+      showD(isMil?'MILITARY TRACK':'AIRCRAFT TRACK',getRows()??[],getRows);
+    }else if(d.t==='sat')openSP(d.idx);
+    else if(d.t==='shp'){
+      const bb=pk.primitive;
+      const getRows=()=>{const wv=bb?._wv;if(!wv)return null;return[['MMSI',wv.mmsi],['NAME',wv.nm||'—'],['SOG',wv.sog],['COG',wv.cog],['POSITION',N(wv.lat)+', '+N(wv.lon)]];};
+      showD('VESSEL',getRows()??[],getRows);
+    }else if(d.t==='cam'){const cam=cams.find(c=>c.id===d.id);if(cam)showC(cam);}
   },Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
   log('MAP','✓ CesiumJS Globe ready');notify('3D GLOBE ACTIVE');
@@ -630,7 +687,7 @@ async function fetchShips(){
 // ── CCTV ──
 async function fetchCCTV(){
   cams.length=0;
-  try{log('CCTV','TfL...');const r=await fetch('https://api.tfl.gov.uk/Place/Type/JamCam');if(!r.ok)throw new Error('');(await r.json()).forEach(c=>{const im=(c.additionalProperties||[]).find(p=>p.key==='imageUrl');const vid=(c.additionalProperties||[]).find(p=>p.key==='videoUrl');if(c.lat&&c.lon)cams.push({id:c.id,name:c.commonName||c.id,lat:c.lat,lon:c.lon,img:im?im.value:null,video:vid?vid.value:null,src:'TfL'});});setSS('tfl','ok');log('CCTV','TfL: '+cams.length);}catch(e){setSS('tfl','err');}
+  try{log('CCTV','TfL...');const r=await fetch('https://api.tfl.gov.uk/Place/Type/JamCam');if(!r.ok)throw new Error('');(await r.json()).forEach(c=>{const im=(c.additionalProperties||[]).find(p=>p.key==='imageUrl');const vid=(c.additionalProperties||[]).find(p=>p.key==='videoUrl');if(c.lat&&c.lon)cams.push({id:c.id,name:c.commonName||c.id,lat:c.lat,lon:c.lon,img:im?im.value:null,src:'TfL'});});setSS('tfl','ok');log('CCTV','TfL: '+cams.length);}catch(e){setSS('tfl','err');}
   try{log('CCTV','Autobahn...');const lr=await fetch('https://verkehr.autobahn.de/o/autobahn/');if(!lr.ok)throw new Error('');
     for(const rd of((await lr.json()).roads||[])){try{const wr=await fetch(`https://verkehr.autobahn.de/o/autobahn/${rd}/services/webcam`);if(!wr.ok)continue;((await wr.json()).webcam||[]).forEach(wc=>{const co=wc.coordinate;if(co?.lat&&co?.long)cams.push({id:wc.identifier||'ab-'+Math.random().toString(36).substr(2,5),name:wc.title||rd,lat:+co.lat,lon:+co.long,img:wc.imageurl||null,src:'AB '+rd});});}catch(e){}}setSS('ab','ok');}catch(e){setSS('ab','err');}
   try{log('CCTV','Digitraffic FI...');
@@ -691,8 +748,8 @@ function interpAC(){
 function startAnim(){
   (function frame(ts){
     document.getElementById('h-utc').textContent=new Date().toISOString().substr(11,8);
-    // Satellite positions: every 5s
-    if(ts-lastSatProp>5000){propSats();lastSatProp=ts;}
+    // Satellite positions: SGP4 is deterministic — compute at 10fps for smooth orbital movement
+    if(ts-lastSatProp>100){propSats();lastSatProp=ts;}
     // Aircraft dead-reckoning: ~30fps (33ms) for smooth visual movement
     if(ts-_lastInterp>33){interpAC();_lastInterp=ts;}
     // Trail updates: every 3s (cheaper, runs less often)
