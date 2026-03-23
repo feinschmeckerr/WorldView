@@ -257,7 +257,7 @@ const cams=[];
 const acCache={};  // hex -> {data, billboard}
 // Billboard tracking maps: hex/mmsi → billboard reference (avoid removeAll+re-add)
 const acBBTrack={},milBBTrack={},shipBBTrack={};
-const trailPool=[];  // Pre-allocated PolylineCollection pool (aircraft)
+const trailEntities={};  // Entity-based trail map hex→entity (reliable in Cesium 1.125)
 const shipTrailPool=[];  // Pre-allocated PolylineCollection pool (ships)
 const carPool=[];  // Traffic flow car billboard pool
 let osmRoads=[],_osmBbox='',_osmFetchTs=0; // OSM road data for close-up traffic
@@ -445,10 +445,9 @@ function initGlobe(){
   // Satellites — BillboardCollection with custom cross icon for visibility
   satPtCol=viewer.scene.primitives.add(new Cesium.BillboardCollection());
   // Trails
-  // Trails — pre-allocated PolylineCollection pool (primitive, NOT entity — avoids entity system overhead)
-  trailLineColl=viewer.scene.primitives.add(new Cesium.PolylineCollection());
-  const _tc=new Cesium.Color(1,1,1,0.8); // white — max contrast on any satellite background
-  for(let i=0;i<300;i++)trailPool.push(trailLineColl.add({positions:[Cesium.Cartesian3.ZERO,Cesium.Cartesian3.fromDegrees(0,1,100)],width:2.5,material:Cesium.Material.fromType('Color',{color:_tc}),show:false}));
+  // Trails — entity-based CustomDataSource (guaranteed position update in Cesium 1.125)
+  trailLineColl=new Cesium.CustomDataSource('ac-trails');
+  viewer.dataSources.add(trailLineColl);
   // Ship trail pool — cyan, 40 slots
   shipTrailLineColl=viewer.scene.primitives.add(new Cesium.PolylineCollection());
   const _sc=new Cesium.Color(0,0.867,1,0.25);
@@ -639,15 +638,23 @@ function renderAC(){
 }
 
 function updateTrails(){
-  if(!layers.aircraft)return; // skip entirely when aircraft layer is off
-  trailPool.forEach(p=>p.show=false);
-  let tc=0;
+  if(!layers.aircraft)return;
+  const active=new Set(Object.keys(acCache));
   for(const a of Object.values(acCache)){
-    if(!a._trail||a._trail.length<2||tc>=300)continue;
+    if(!a._trail||a._trail.length<2)continue;
     const pts=a._trail.map(p=>Cesium.Cartesian3.fromDegrees(p[0],p[1],p[2]));
-    if(a._drPos)pts.push(Cesium.Cartesian3.fromDegrees(a._drPos[0],a._drPos[1],a._drPos[2]));
-    trailPool[tc].positions=pts;trailPool[tc].show=true;tc++;
+    if(a._drPos&&!isNaN(a._drPos[0])&&!isNaN(a._drPos[1])){
+      pts.push(Cesium.Cartesian3.fromDegrees(a._drPos[0],a._drPos[1],a._drPos[2]||100));
+    }
+    if(trailEntities[a.hex]){
+      trailEntities[a.hex].polyline.positions=new Cesium.ConstantProperty(pts);
+      trailEntities[a.hex].show=true;
+    }else{
+      const e=trailLineColl.entities.add({polyline:{positions:pts,width:2.5,material:new Cesium.Color(1,1,1,0.8),arcType:Cesium.ArcType.NONE}});
+      trailEntities[a.hex]=e;
+    }
   }
+  for(const h of Object.keys(trailEntities))trailEntities[h].show=active.has(h);
   viewer.scene.requestRender();
 }
 
@@ -987,34 +994,30 @@ async function fetchCCTV(){
   try{log('CCTV','Autobahn...');const lr=await fetch('https://verkehr.autobahn.de/o/autobahn/');if(!lr.ok)throw new Error('');
     for(const rd of((await lr.json()).roads||[])){try{const wr=await fetch(`https://verkehr.autobahn.de/o/autobahn/${rd}/services/webcam`);if(!wr.ok)continue;((await wr.json()).webcam||[]).forEach(wc=>{const co=wc.coordinate;if(co?.lat&&co?.long)cams.push({id:wc.identifier||'ab-'+Math.random().toString(36).substr(2,5),name:wc.title||rd,lat:+co.lat,lon:+co.long,img:wc.imageurl||null,src:'AB '+rd});});}catch(e){}}setSS('ab','ok');}catch(e){setSS('ab','err');}
   try{log('CCTV','Digitraffic FI...');
-    // Try v3 (GeoJSON), then v2, then v1 (legacy) — API versioning has changed over time
-    const _dtUrls=['https://tie.digitraffic.fi/api/v3/metadata/camera-stations',
-                   'https://tie.digitraffic.fi/api/v2/metadata/camera-stations',
-                   'https://tie.digitraffic.fi/api/v1/metadata/camera-stations'];
-    let dr=null;
-    for(const u of _dtUrls){try{const t=await fetch(u);if(t.ok){dr=t;break;}}catch(_){}}
-    if(!dr)throw new Error('all endpoints unreachable');
+    // New weathercam API (deprecated v1/v2/v3 /metadata/camera-stations removed)
+    const dr=await fetch('https://tie.digitraffic.fi/api/weathercam/v1/stations');
+    if(!dr.ok)throw new Error('HTTP '+dr.status);
     const dd=await dr.json();let dtN=0;
-    // v3 returns GeoJSON FeatureCollection; v1 returns {cameraStations:[]}
-    const stations=dd.features||dd.cameraStations||[];
-    stations.forEach(cs=>{
-      const geo=!!cs.geometry;
-      const lat=geo?cs.geometry.coordinates?.[1]:(cs.wgs84Lat??cs.latitude??cs.coordinates?.y);
-      const lon=geo?cs.geometry.coordinates?.[0]:(cs.wgs84Long??cs.longitude??cs.coordinates?.x);
-      if(!lat||!lon||Math.abs(+lat)<1||Math.abs(+lon)<1)return;
-      const presets=(geo?cs.properties?.cameraPresets:cs.cameraPresets)||[];
-      const name=geo?(cs.properties?.name||cs.id):(cs.names?.en||cs.names?.fi||cs.name||cs.id);
-      presets.forEach(cp=>{
-        // Try explicit imageUrl first; fall back to well-known Digitraffic weathercam URL pattern
-        const img=cp.imageUrl||cp.stillImageUrl||cp.defaultUrl||(cp.id?`https://weathercam.digitraffic.fi/${cp.id}.jpg`:null);
-        if(img){cams.push({id:'dtfi-'+cp.id,name,lat:+lat,lon:+lon,img,src:'Digitraffic FI'});dtN++;}
+    (dd.features||[]).forEach(f=>{
+      const coords=f.geometry?.coordinates;
+      if(!coords)return;
+      const [lon,lat]=coords;
+      if(!lat||!lon)return;
+      const name=f.properties?.name||f.properties?.id||'FI Cam';
+      (f.properties?.cameraPresets||[]).forEach(cp=>{
+        if(cp.inCollection===false)return;
+        const img=`https://weathercam.digitraffic.fi/${cp.id}.jpg`;
+        cams.push({id:'dtfi-'+cp.id,name,lat:+lat,lon:+lon,img,src:'Digitraffic FI'});dtN++;
       });
     });
     setSS('dtfi','ok');log('CCTV','Digitraffic FI: '+dtN);}catch(e){setSS('dtfi','err');log('CCTV','Digitraffic FI: '+e.message);}
   try{
-    log('CCTV','BC Open511...');
-    const br=await fetch('https://api.open511.gov.bc.ca/webcams');
-    if(!br.ok)throw new Error('HTTP '+br.status);
+    log('CCTV','DriveBC...');
+    let br=null;
+    for(const u of ['https://www.drivebc.ca/api/webcams/?format=json','https://api.open511.gov.bc.ca/webcams?format=json','https://api.open511.gov.bc.ca/webcams']){
+      try{const t=await fetch(u);if(t.ok){br=t;break;}}catch(_){}
+    }
+    if(!br)throw new Error('all endpoints unreachable');
     const bd=await br.json();let dbN=0;
     (bd.webcams||[]).forEach(wc=>{
       const c=wc.geography?.coordinates;
@@ -1026,8 +1029,8 @@ async function fetchCCTV(){
       const name=wc.name||('BC-'+numId);
       if(img){cams.push({id:'bc-'+(wc.id||dbN),name,lat:c[1],lon:c[0],img,src:'DriveBC'});dbN++;}
     });
-    setSS('drivebc','ok');log('CCTV','BC Open511: '+dbN);
-  }catch(e){setSS('drivebc','err');log('CCTV','BC Open511: '+e.message);}
+    setSS('drivebc','ok');log('CCTV','DriveBC: '+dbN);
+  }catch(e){setSS('drivebc','err');log('CCTV','DriveBC: '+e.message);}
   prims.camPts.removeAll();
   cams.forEach(c=>{const pt=prims.camPts.add({position:Cesium.Cartesian3.fromDegrees(c.lon,c.lat,100),image:camIcn,width:16,height:16,scaleByDistance:new Cesium.NearFarScalar(1e3,1.2,3e6,.25)});pt._wv={t:'cam',id:c.id};});
   document.getElementById('c-cam').textContent=cams.length;log('CCTV',cams.length+' cams');
