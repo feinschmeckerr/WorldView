@@ -193,7 +193,7 @@ body.mode-flir::after{content:'';position:fixed;inset:0;z-index:9;background:rad
         <div class="lc" data-ly="ships" onclick="tgl('ships')"><span class="lc-ic">🚢</span><span class="lc-nm">VESSELS</span><span class="lc-ct" id="c-shp">0</span></div>
         <div class="lc" data-ly="cctv" onclick="tgl('cctv')"><span class="lc-ic">📷</span><span class="lc-nm">CCTV</span><span class="lc-ct" id="c-cam">0</span></div>
         <div class="lc" data-ly="zones" onclick="tgl('zones')"><span class="lc-ic">⚠</span><span class="lc-nm">ZONES</span><span class="lc-ct" id="c-zn">—</span></div>
-        <div class="lc off" data-ly="traffic" onclick="tgl('traffic')"><span class="lc-ic">🚗</span><span class="lc-nm">TRAFFIC</span><span class="lc-ct" id="c-trf">—</span></div>
+        <div class="lc" data-ly="traffic" onclick="tgl('traffic')"><span class="lc-ic">🚗</span><span class="lc-nm">TRAFFIC</span><span class="lc-ct" id="c-trf">—</span></div>
       </div>
       <div class="dock-status"><div class="pd"></div><div id="stx">INITIALIZING...</div></div>
     </div>
@@ -250,7 +250,7 @@ document.addEventListener('keydown',e=>{if(e.key==='1')setMode('normal');else if
 
 // ── State ──
 let viewer;
-const layers={aircraft:1,military:1,satellites:1,ships:1,cctv:1,zones:1,traffic:0};
+const layers={aircraft:1,military:1,satellites:1,ships:1,cctv:1,zones:1,traffic:1};
 const prims={};  // named primitive references
 const satRecs=[];
 const cams=[];
@@ -260,7 +260,8 @@ const acBBTrack={},milBBTrack={},shipBBTrack={};
 const trailPool=[];  // Pre-allocated PolylineCollection pool (aircraft)
 const shipTrailPool=[];  // Pre-allocated PolylineCollection pool (ships)
 const carPool=[];  // Traffic flow car billboard pool
-let trailLineColl,shipTrailLineColl,satPtCol,_lastPick=0;
+const projPool=[];  // Forward projection polyline pool (aircraft)
+let trailLineColl,projLineColl,shipTrailLineColl,satPtCol,_lastPick=0;
 let satTrackIdx=null,satTrackInt=null,orbitPathDS=null,showOrbit=false;
 
 let _dockOpen=false;
@@ -332,6 +333,7 @@ function tgl(n){layers[n]=layers[n]?0:1;const el=document.querySelector(`.lc[dat
   if(n==='satellites'&&orbitPathDS)orbitPathDS.show=sh;
   if(n==='zones')['nfz','fir','gps_mod','gps_hi','gps_ext'].forEach(k=>{if(prims[k])prims[k].show=sh;});
   if(n==='aircraft'&&trailLineColl)trailLineColl.show=sh;
+  if(n==='aircraft'&&projLineColl)projLineColl.show=sh;
   if(n==='ships'&&shipTrailLineColl)shipTrailLineColl.show=sh;
   if(n==='traffic'&&prims.trafficBB){prims.trafficBB.show=sh;if(!sh)carPool.forEach(c=>{try{c.bb.show=false;}catch(e){}});}
   if(viewer)viewer.scene.requestRender();
@@ -446,8 +448,12 @@ function initGlobe(){
   // Trails
   // Trails — pre-allocated PolylineCollection pool (primitive, NOT entity — avoids entity system overhead)
   trailLineColl=viewer.scene.primitives.add(new Cesium.PolylineCollection());
-  const _tc=new Cesium.Color(0,1,0.533,0.35);
-  for(let i=0;i<100;i++)trailPool.push(trailLineColl.add({positions:[Cesium.Cartesian3.ZERO,Cesium.Cartesian3.fromDegrees(0,1,100)],width:1.5,material:Cesium.Material.fromType('Color',{color:_tc}),show:false}));
+  const _tc=new Cesium.Color(0,1,0.533,0.65); // green, more opaque
+  for(let i=0;i<300;i++)trailPool.push(trailLineColl.add({positions:[Cesium.Cartesian3.ZERO,Cesium.Cartesian3.fromDegrees(0,1,100)],width:2,material:Cesium.Material.fromType('Color',{color:_tc}),show:false}));
+  // Forward projection pool — faint amber, 300 slots (dashed future path)
+  projLineColl=viewer.scene.primitives.add(new Cesium.PolylineCollection());
+  const _pc=new Cesium.Color(1,0.9,0.3,0.28);
+  for(let i=0;i<300;i++)projPool.push(projLineColl.add({positions:[Cesium.Cartesian3.ZERO,Cesium.Cartesian3.fromDegrees(0,1,100)],width:1.2,material:Cesium.Material.fromType('PolylineDash',{color:_pc,dashLength:12,dashPattern:255}),show:false}));
   // Ship trail pool — cyan, 40 slots
   shipTrailLineColl=viewer.scene.primitives.add(new Cesium.PolylineCollection());
   const _sc=new Cesium.Color(0,0.867,1,0.25);
@@ -612,7 +618,7 @@ function renderAC(){
       bb._wv=wv;track[a.hex]=bb;
     }
     // Trail append
-    if(!a._trail)a._trail=[];a._trail.push([a.lon,a.lat,altM||100]);if(a._trail.length>30)a._trail.shift();
+    if(!a._trail)a._trail=[];a._trail.push([a.lon,a.lat,altM||100]);if(a._trail.length>80)a._trail.shift();
     if(mil)milN++;else civN++;
   });
   // Hide billboards for aircraft gone from cache or that switched civ↔mil status
@@ -622,15 +628,32 @@ function renderAC(){
 }
 
 function updateTrails(){
-  // Pool: hide all, then reassign positions — zero allocations for existing slots
+  // Historical trails — bright green
   trailPool.forEach(p=>p.show=false);
   let tc=0;
   for(const a of Object.values(acCache)){
-    if(!a._trail||a._trail.length<2||tc>=100)continue;
+    if(!a._trail||a._trail.length<2||tc>=300)continue;
     const pts=a._trail.map(p=>Cesium.Cartesian3.fromDegrees(p[0],p[1],p[2]));
     if(a._drPos)pts.push(Cesium.Cartesian3.fromDegrees(a._drPos[0],a._drPos[1],a._drPos[2]));
-    trailPool[tc].positions=pts;
-    trailPool[tc].show=true;tc++;
+    trailPool[tc].positions=pts;trailPool[tc].show=true;tc++;
+  }
+  // Forward projections — dashed amber line (30 min ahead, 6 × 5-min steps)
+  projPool.forEach(p=>p.show=false);
+  let pc=0;
+  for(const a of Object.values(acCache)){
+    if(!a.gs||!a.track||!a._drPos||a.gs<50||pc>=300)continue;
+    const spd=a.gs*1.852/3600; // km/s
+    const b=a.track*D2R;
+    const [slon,slat,salt]=a._drPos;
+    const lat1=slat*D2R,lon1=slon*D2R;
+    const projPts=[Cesium.Cartesian3.fromDegrees(slon,slat,salt)];
+    for(let t=300;t<=1800;t+=300){ // every 5 min up to 30 min
+      const ad=spd*t/ER;
+      const lat2=Math.asin(Math.sin(lat1)*Math.cos(ad)+Math.cos(lat1)*Math.sin(ad)*Math.cos(b));
+      const lon2=lon1+Math.atan2(Math.sin(b)*Math.sin(ad)*Math.cos(lat1),Math.cos(ad)-Math.sin(lat1)*Math.sin(lat2));
+      projPts.push(Cesium.Cartesian3.fromDegrees(lon2*R2D,lat2*R2D,salt));
+    }
+    projPool[pc].positions=projPts;projPool[pc].show=true;pc++;
   }
   viewer.scene.requestRender();
 }
@@ -850,7 +873,7 @@ function _ptOnSeg(seg,t){
 
 function initTraffic(){
   prims.trafficBB=viewer.scene.primitives.add(new Cesium.BillboardCollection());
-  prims.trafficBB.show=false; // off by default
+  prims.trafficBB.show=true; // on by default
   for(let i=0;i<200;i++){
     const segIdx=i%ROADS.length;
     const t=Math.random();
@@ -858,7 +881,7 @@ function initTraffic(){
     const bb=prims.trafficBB.add({
       position:Cesium.Cartesian3.ZERO,image:carIcn,width:10,height:16,rotation:0,
       alignedAxis:Cesium.Cartesian3.UNIT_Z,show:false,
-      scaleByDistance:new Cesium.NearFarScalar(500,2,2e5,0.4)
+      scaleByDistance:new Cesium.NearFarScalar(500,2.5,5e5,0.35)
     });
     carPool.push({segIdx,t,spd,bb});
   }
@@ -868,7 +891,7 @@ function initTraffic(){
 function updateTraffic(){
   if(!layers.traffic||!prims.trafficBB)return;
   const h=viewer.camera.positionCartographic.height;
-  const show=h<2e5; // only render below 200 km altitude
+  const show=h<5e5; // render below 500 km altitude
   for(const car of carPool){
     if(!show){car.bb.show=false;continue;}
     car.t+=car.spd;
@@ -947,7 +970,11 @@ async function fetchCCTV(){
       if(!lat||!lon||Math.abs(+lat)<1||Math.abs(+lon)<1)return;
       const presets=(geo?cs.properties?.cameraPresets:cs.cameraPresets)||[];
       const name=geo?(cs.properties?.name||cs.id):(cs.names?.en||cs.names?.fi||cs.name||cs.id);
-      presets.forEach(cp=>{const img=cp.imageUrl||cp.stillImageUrl||cp.defaultUrl;if(img){cams.push({id:'dtfi-'+cp.id,name,lat:+lat,lon:+lon,img,src:'Digitraffic FI'});dtN++;}});
+      presets.forEach(cp=>{
+        // Try explicit imageUrl first; fall back to well-known Digitraffic weathercam URL pattern
+        const img=cp.imageUrl||cp.stillImageUrl||cp.defaultUrl||(cp.id?`https://weathercam.digitraffic.fi/${cp.id}.jpg`:null);
+        if(img){cams.push({id:'dtfi-'+cp.id,name,lat:+lat,lon:+lon,img,src:'Digitraffic FI'});dtN++;}
+      });
     });
     setSS('dtfi','ok');log('CCTV','Digitraffic FI: '+dtN);}catch(e){setSS('dtfi','err');log('CCTV','Digitraffic FI: '+e.message);}
   try{log('CCTV','BC Open511...');const br=await fetch('https://api.open511.gov.bc.ca/webcams?format=json',{headers:{'Accept':'application/json'}});if(!br.ok)throw new Error('HTTP '+br.status);const bd=await br.json();let dbN=0;(bd.webcams||[]).forEach(wc=>{const c=wc.geography?.coordinates||wc.coordinates;if(!c?.length)return;
