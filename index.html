@@ -375,16 +375,27 @@ const shipIcn=makeIcon((x,s)=>{const r=s/2-1;x.translate(s/2,s/2);
 const satIcn=makeEmojiIcon('🛰',26,'#ffffaa');
 const camIcn=makeEmojiIcon('📷',22,'#ff6655');
 
-// Car icon — top-down view, 10×16px, nose (windshield) at top = north, rotated via UNIT_Z
+// Car icon — top-down silhouette, 8×14px, nose at top (north), rotated via UNIT_Z
 const carIcn=(()=>{
-  const dpr=Math.min(window.devicePixelRatio||1,2);const W=10,H=16;
+  const dpr=Math.min(window.devicePixelRatio||1,2);const W=8,H=14;
   const c=document.createElement('canvas');c.width=W*dpr;c.height=H*dpr;
   const x=c.getContext('2d');x.scale(dpr,dpr);
-  x.fillStyle='#ffe566';x.shadowColor='rgba(180,130,0,.35)';x.shadowBlur=3;
-  x.fillRect(1,0,W-2,H);
-  x.strokeStyle='rgba(0,0,0,.4)';x.lineWidth=0.8;x.shadowBlur=0;x.strokeRect(1,0,W-2,H);
-  x.fillStyle='rgba(140,210,255,.75)';x.fillRect(2,1,W-4,4);   // windshield (front)
-  x.fillStyle='rgba(140,210,255,.4)'; x.fillRect(2,H-5,W-4,3); // rear window
+  // Helper: rounded-rect path
+  function rr(lx,ly,lw,lh,r){x.beginPath();x.moveTo(lx+r,ly);x.lineTo(lx+lw-r,ly);x.arcTo(lx+lw,ly,lx+lw,ly+r,r);x.lineTo(lx+lw,ly+lh-r);x.arcTo(lx+lw,ly+lh,lx+lw-r,ly+lh,r);x.lineTo(lx+r,ly+lh);x.arcTo(lx,ly+lh,lx,ly+lh-r,r);x.lineTo(lx,ly+r);x.arcTo(lx,ly,lx+r,ly,r);x.closePath();}
+  // Body shadow
+  x.shadowColor='rgba(0,0,0,0.45)';x.shadowBlur=2;x.shadowOffsetY=1;
+  x.fillStyle='#2196f3';rr(0.5,0.5,W-1,H-1,2);x.fill();
+  x.shadowBlur=0;x.shadowOffsetY=0;
+  // Hood taper: slightly darker top strip
+  x.fillStyle='rgba(0,0,0,0.15)';x.fillRect(1,0.5,W-2,2.5);
+  // Windshield (front glass, top)
+  x.fillStyle='rgba(210,240,255,0.85)';x.fillRect(1.5,1.5,W-3,3);
+  // Roof
+  x.fillStyle='rgba(10,80,160,0.35)';x.fillRect(1.5,4.5,W-3,4.5);
+  // Rear window
+  x.fillStyle='rgba(190,225,255,0.6)';x.fillRect(1.5,H-3.5,W-3,2);
+  // Outline
+  x.strokeStyle='rgba(0,0,0,0.5)';x.lineWidth=0.7;rr(0.5,0.5,W-1,H-1,2);x.stroke();
   return c;
 })();
 
@@ -880,9 +891,9 @@ function initTraffic(){
     const spd=(0.003+Math.random()*0.005)*(Math.random()<0.5?1:-1);
     const bb=prims.trafficBB.add({
       position:Cesium.Cartesian3.fromDegrees(ROADS[segIdx][0][0],ROADS[segIdx][0][1],5),
-      image:carIcn,width:10,height:16,rotation:0,
+      image:carIcn,width:8,height:14,rotation:0,
       alignedAxis:Cesium.Cartesian3.UNIT_Z,show:false,
-      scaleByDistance:new Cesium.NearFarScalar(500,3.5,5e5,0.8),
+      scaleByDistance:new Cesium.NearFarScalar(300,2.2,8e4,0.5),
       translucencyByDistance:new Cesium.NearFarScalar(1e5,1.0,2e6,0.0)
     });
     carPool.push({segIdx,t,spd,bb});
@@ -923,12 +934,12 @@ async function fetchOSMRoads(){
 function updateTraffic(){
   if(!layers.traffic||!prims.trafficBB)return;
   const h=viewer.camera.positionCartographic.height;
-  // Below 30 km: pre-fetch OSM road geometry (motorways at exact GPS coords)
-  if(h<3e4)fetchOSMRoads();
-  // Clear OSM cache when zoomed back out (so next zoom-in re-fetches for new area)
-  if(h>1e5&&osmRoads.length){osmRoads=[];_osmBbox='';carPool.forEach((c,i)=>{c.segIdx=i%ROADS.length;c.t=Math.random();});}
-  // Choose road source: OSM (accurate, zoomed-in) or built-in ROADS (global fallback)
-  const activeRoads=osmRoads.length&&h<3e4?osmRoads:ROADS;
+  // Below 60 km: fetch OSM motorway/trunk geometry for exact road positions
+  if(h<6e4)fetchOSMRoads();
+  // Reset OSM cache when zoomed back out beyond 150 km
+  if(h>1.5e5&&osmRoads.length){osmRoads=[];_osmBbox='';carPool.forEach((c,i)=>{c.segIdx=i%ROADS.length;c.t=Math.random();});}
+  // Choose road source: OSM when available + zoomed in, else built-in ROADS
+  const activeRoads=osmRoads.length&&h<6e4?osmRoads:ROADS;
   for(const car of carPool){
     car.t+=car.spd;car.t=((car.t%1)+1)%1;
     const seg=activeRoads[car.segIdx%activeRoads.length];
@@ -998,16 +1009,20 @@ async function fetchCCTV(){
     const dr=await fetch('https://tie.digitraffic.fi/api/weathercam/v1/stations');
     if(!dr.ok)throw new Error('HTTP '+dr.status);
     const dd=await dr.json();let dtN=0;
-    (dd.features||[]).forEach(f=>{
-      const coords=f.geometry?.coordinates;
-      if(!coords)return;
-      const [lon,lat]=coords;
+    // API may return GeoJSON features[] or legacy cameraStations[]/stations[]
+    const stList=dd.features||dd.cameraStations||dd.stations||[];
+    stList.forEach(cs=>{
+      const geo=!!cs.geometry;
+      const coords=cs.geometry?.coordinates;
+      const lat=coords?+coords[1]:(+(cs.coordinates?.y||cs.wgs84Lat||cs.lat||0));
+      const lon=coords?+coords[0]:(+(cs.coordinates?.x||cs.wgs84Long||cs.lon||0));
       if(!lat||!lon)return;
-      const name=f.properties?.name||f.properties?.id||'FI Cam';
-      (f.properties?.cameraPresets||[]).forEach(cp=>{
-        if(cp.inCollection===false)return;
-        const img=`https://weathercam.digitraffic.fi/${cp.id}.jpg`;
-        cams.push({id:'dtfi-'+cp.id,name,lat:+lat,lon:+lon,img,src:'Digitraffic FI'});dtN++;
+      const name=(geo?(cs.properties?.name||cs.properties?.id):(cs.name||cs.id))||'FI Cam';
+      const presets=geo?(cs.properties?.cameraPresets||cs.properties?.presets||[]):(cs.cameraPresets||cs.presets||[]);
+      presets.forEach(cp=>{
+        const pid=cp.id||cp.presetId||cp.cameraPresetId;
+        if(!pid)return;
+        cams.push({id:'dtfi-'+pid,name,lat,lon,img:`https://weathercam.digitraffic.fi/${pid}.jpg`,src:'Digitraffic FI'});dtN++;
       });
     });
     setSS('dtfi','ok');log('CCTV','Digitraffic FI: '+dtN);}catch(e){setSS('dtfi','err');log('CCTV','Digitraffic FI: '+e.message);}
