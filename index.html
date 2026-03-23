@@ -260,6 +260,7 @@ const acBBTrack={},milBBTrack={},shipBBTrack={};
 const trailPool=[];  // Pre-allocated PolylineCollection pool (aircraft)
 const shipTrailPool=[];  // Pre-allocated PolylineCollection pool (ships)
 const carPool=[];  // Traffic flow car billboard pool
+let osmRoads=[],_osmBbox='',_osmFetchTs=0; // OSM road data for close-up traffic
 let trailLineColl,shipTrailLineColl,satPtCol,_lastPick=0;
 let satTrackIdx=null,satTrackInt=null,orbitPathDS=null,showOrbit=false;
 
@@ -446,8 +447,8 @@ function initGlobe(){
   // Trails
   // Trails — pre-allocated PolylineCollection pool (primitive, NOT entity — avoids entity system overhead)
   trailLineColl=viewer.scene.primitives.add(new Cesium.PolylineCollection());
-  const _tc=new Cesium.Color(0,1,0.533,0.65); // green, more opaque
-  for(let i=0;i<300;i++)trailPool.push(trailLineColl.add({positions:[Cesium.Cartesian3.ZERO,Cesium.Cartesian3.fromDegrees(0,1,100)],width:2,material:Cesium.Material.fromType('Color',{color:_tc}),show:false}));
+  const _tc=new Cesium.Color(1,1,1,0.8); // white — max contrast on any satellite background
+  for(let i=0;i<300;i++)trailPool.push(trailLineColl.add({positions:[Cesium.Cartesian3.ZERO,Cesium.Cartesian3.fromDegrees(0,1,100)],width:2.5,material:Cesium.Material.fromType('Color',{color:_tc}),show:false}));
   // Ship trail pool — cyan, 40 slots
   shipTrailLineColl=viewer.scene.primitives.add(new Cesium.PolylineCollection());
   const _sc=new Cesium.Color(0,0.867,1,0.25);
@@ -625,6 +626,9 @@ function renderAC(){
       // Cold path: new aircraft, create billboard once
       const bb=(mil?milBB:acBB).add({position:pos,image:mil?acIconR:acIconG,width:mil?28:26,height:mil?28:26,rotation:rot,alignedAxis:Cesium.Cartesian3.UNIT_Z,scaleByDistance:new Cesium.NearFarScalar(1e4,1.1,5e6,.2)});
       bb._wv=wv;track[a.hex]=bb;
+      // Seed first trail point immediately so trail is ready after 5s
+      if(!a._trail)a._trail=[];
+      if(a._trail.length===0){a._trail.push([a.lon,a.lat,altM||100]);a._trailTs=Date.now()-4500;}
     }
     if(mil)milN++;else civN++;
   });
@@ -879,14 +883,50 @@ function initTraffic(){
   document.getElementById('c-trf').textContent=200;
 }
 
+// Fetch motorway/trunk road geometry from Overpass API for the current camera viewport.
+// Called when altitude <30km; cars then follow exact OSM road geometry.
+async function fetchOSMRoads(){
+  if(!viewer)return;
+  const rect=viewer.camera.computeViewRectangle();
+  if(!rect)return;
+  const R=Cesium.Math.toDegrees;
+  // Expand bbox by 15% for smooth transition at edges
+  const latSpan=(R(rect.north)-R(rect.south))*0.15;
+  const lonSpan=(R(rect.east)-R(rect.west))*0.15;
+  const s=(R(rect.south)-latSpan).toFixed(4),w=(R(rect.west)-lonSpan).toFixed(4);
+  const n=(R(rect.north)+latSpan).toFixed(4),e=(R(rect.east)+lonSpan).toFixed(4);
+  const bbox=`${s},${w},${n},${e}`;
+  if(bbox===_osmBbox||Date.now()-_osmFetchTs<25000)return; // debounce
+  _osmBbox=bbox;_osmFetchTs=Date.now();
+  try{
+    // Query motorways and trunk roads (freeways/national roads) — these match the ROADS[] set
+    const q=`[out:json][timeout:12];(way["highway"~"^(motorway|trunk)$"](${bbox}););out geom;`;
+    const r=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:'data='+encodeURIComponent(q)});
+    if(!r.ok)return;
+    const d=await r.json();
+    const segs=(d.elements||[]).filter(e=>e.type==='way'&&e.geometry?.length>=3).map(e=>e.geometry.map(p=>[p.lon,p.lat]));
+    if(segs.length<1)return;
+    osmRoads=segs;
+    // Redistribute cars evenly across new OSM segments
+    carPool.forEach((car,i)=>{car.segIdx=i%osmRoads.length;car.t=Math.random();});
+    log('TRF','OSM roads: '+segs.length+' segments');
+  }catch(e){}
+}
+
 function updateTraffic(){
   if(!layers.traffic||!prims.trafficBB)return;
   const h=viewer.camera.positionCartographic.height;
-  // Below 20 km: hide — waypoint spacing (~10–50 km) is too coarse to follow road curves
-  if(h<2e4){carPool.forEach(c=>{c.bb.show=false;});return;}
+  // Below 30 km: pre-fetch OSM road geometry (motorways at exact GPS coords)
+  if(h<3e4)fetchOSMRoads();
+  // Clear OSM cache when zoomed back out (so next zoom-in re-fetches for new area)
+  if(h>1e5&&osmRoads.length){osmRoads=[];_osmBbox='';carPool.forEach((c,i)=>{c.segIdx=i%ROADS.length;c.t=Math.random();});}
+  // Choose road source: OSM (accurate, zoomed-in) or built-in ROADS (global fallback)
+  const activeRoads=osmRoads.length&&h<3e4?osmRoads:ROADS;
   for(const car of carPool){
     car.t+=car.spd;car.t=((car.t%1)+1)%1;
-    const[lon,lat,hdg]=_ptOnSeg(ROADS[car.segIdx],car.t);
+    const seg=activeRoads[car.segIdx%activeRoads.length];
+    if(!seg)continue;
+    const[lon,lat,hdg]=_ptOnSeg(seg,car.t);
     car.bb.position=Cesium.Cartesian3.fromDegrees(lon,lat,5);
     car.bb.rotation=Cesium.Math.toRadians(-(car.spd<0?(hdg+180)%360:hdg));
     car.bb.show=true;
@@ -947,10 +987,13 @@ async function fetchCCTV(){
   try{log('CCTV','Autobahn...');const lr=await fetch('https://verkehr.autobahn.de/o/autobahn/');if(!lr.ok)throw new Error('');
     for(const rd of((await lr.json()).roads||[])){try{const wr=await fetch(`https://verkehr.autobahn.de/o/autobahn/${rd}/services/webcam`);if(!wr.ok)continue;((await wr.json()).webcam||[]).forEach(wc=>{const co=wc.coordinate;if(co?.lat&&co?.long)cams.push({id:wc.identifier||'ab-'+Math.random().toString(36).substr(2,5),name:wc.title||rd,lat:+co.lat,lon:+co.long,img:wc.imageurl||null,src:'AB '+rd});});}catch(e){}}setSS('ab','ok');}catch(e){setSS('ab','err');}
   try{log('CCTV','Digitraffic FI...');
-    // No custom headers — avoid CORS preflight on a simple GET
-    let dr=await fetch('https://tie.digitraffic.fi/api/v3/metadata/camera-stations');
-    if(!dr.ok)dr=await fetch('https://tie.digitraffic.fi/api/v1/metadata/camera-stations');
-    if(!dr.ok)throw new Error('HTTP '+dr.status);
+    // Try v3 (GeoJSON), then v2, then v1 (legacy) — API versioning has changed over time
+    const _dtUrls=['https://tie.digitraffic.fi/api/v3/metadata/camera-stations',
+                   'https://tie.digitraffic.fi/api/v2/metadata/camera-stations',
+                   'https://tie.digitraffic.fi/api/v1/metadata/camera-stations'];
+    let dr=null;
+    for(const u of _dtUrls){try{const t=await fetch(u);if(t.ok){dr=t;break;}}catch(_){}}
+    if(!dr)throw new Error('all endpoints unreachable');
     const dd=await dr.json();let dtN=0;
     // v3 returns GeoJSON FeatureCollection; v1 returns {cameraStations:[]}
     const stations=dd.features||dd.cameraStations||[];
@@ -969,35 +1012,22 @@ async function fetchCCTV(){
     });
     setSS('dtfi','ok');log('CCTV','Digitraffic FI: '+dtN);}catch(e){setSS('dtfi','err');log('CCTV','Digitraffic FI: '+e.message);}
   try{
-    log('CCTV','DriveBC...');
-    // Try native DriveBC REST API first (CORS-friendly, used by drivebc.ca website itself)
-    // Fall back to BC Open511 if unavailable
-    let bd=null,dbSrc='DriveBC';
-    try{
-      const br=await fetch('https://www.drivebc.ca/api/v1/webcam/?format=json&limit=1000');
-      if(br.ok){const j=await br.json();bd=j.results||j.webcams||[];}
-    }catch(_){}
-    if(!bd){
-      const br=await fetch('https://api.open511.gov.bc.ca/webcams?format=json');
-      if(!br.ok)throw new Error('HTTP '+br.status);
-      const j=await br.json();bd=j.webcams||[];dbSrc='BC Open511';
-    }
-    let dbN=0;
-    bd.forEach(wc=>{
-      // Coordinates: GeoJSON point field or lat/lon fields
-      const geo=wc.camLocation||wc.geography;
-      const c=geo?.coordinates||(wc.lat&&wc.lon?[wc.lon,wc.lat]:null);
+    log('CCTV','BC Open511...');
+    const br=await fetch('https://api.open511.gov.bc.ca/webcams');
+    if(!br.ok)throw new Error('HTTP '+br.status);
+    const bd=await br.json();let dbN=0;
+    (bd.webcams||[]).forEach(wc=>{
+      const c=wc.geography?.coordinates;
       if(!c?.length)return;
-      // Image URL: explicit field, or construct from numeric camera ID
-      const idM=(wc.url||'').match(/\/id\/(\d+)/)||(wc.id||'').match(/(\d+)$/);
+      // Image: extract numeric ID from page URL (/id/542/), or from Open511 id trailing digits
+      const idM=(wc.url||'').match(/\/id\/(\d+)/)||(String(wc.id||'')).match(/(\d+)$/);
       const numId=idM?.[1];
-      const img=wc.imageUrl||wc.image_url||wc.snapshot_url
-               ||(numId?`https://images.drivebc.ca/bchighwaycam/pub/cameras/${numId}/currentlarge.jpg`:null);
-      const name=wc.name||wc.caption||('BC-'+(numId||wc.id));
-      if(img){cams.push({id:'bc-'+(wc.id||dbN),name,lat:c[1],lon:c[0],img,src:dbSrc});dbN++;}
+      const img=numId?`https://images.drivebc.ca/bchighwaycam/pub/cameras/${numId}/currentlarge.jpg`:null;
+      const name=wc.name||('BC-'+numId);
+      if(img){cams.push({id:'bc-'+(wc.id||dbN),name,lat:c[1],lon:c[0],img,src:'DriveBC'});dbN++;}
     });
-    setSS('drivebc','ok');log('CCTV',dbSrc+': '+dbN);
-  }catch(e){setSS('drivebc','err');log('CCTV','DriveBC: '+e.message);}
+    setSS('drivebc','ok');log('CCTV','BC Open511: '+dbN);
+  }catch(e){setSS('drivebc','err');log('CCTV','BC Open511: '+e.message);}
   prims.camPts.removeAll();
   cams.forEach(c=>{const pt=prims.camPts.add({position:Cesium.Cartesian3.fromDegrees(c.lon,c.lat,100),image:camIcn,width:16,height:16,scaleByDistance:new Cesium.NearFarScalar(1e3,1.2,3e6,.25)});pt._wv={t:'cam',id:c.id};});
   document.getElementById('c-cam').textContent=cams.length;log('CCTV',cams.length+' cams');
