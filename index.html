@@ -1234,7 +1234,7 @@ async function fetchBVG(){
       bb.show=true;
       bb._wv={t:'bvg',line:v.line?.name||'?',prod,dir:v.direction||'',
               _lat:loc.latitude,_lon:loc.longitude,_ts:Date.now(),
-              _bearing:bearing??0,
+              _bearing:bearing,
               _spd:BVG_SPD[prod]||5.6,
               _blendFrom:old?._blendFrom,_blendStart:old?._blendStart};
       ci++;
